@@ -121,6 +121,10 @@ docs/
 tools/
 .vscode/
 
+# Материалы агента: внутренняя информация, в репозиторий не идёт
+CLAUDE.md
+.claude/
+
 # JetBrains
 .idea/
 *.iml
