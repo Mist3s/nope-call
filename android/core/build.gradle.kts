@@ -1,3 +1,5 @@
+val roomVersion = "2.7.2"
+
 // Горячий путь: CallScreeningService, снимок правил, Room, адаптеры Android (архитектура §2).
 //
 // Ключевое свойство модуля: он НЕ знает про Flutter и Pigeon. Иначе правило «проверка звонка
@@ -7,6 +9,7 @@
 plugins {
     id("com.android.library")
     id("kotlin-android")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -32,9 +35,34 @@ android {
     }
 }
 
+// Схемы Room экспортируются в репозиторий: без них нельзя написать тест миграции,
+// а терять созданные пользователем правила при обновлении нельзя (архитектура §5.4).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
+}
+
 dependencies {
-    implementation(project(":engine"))
+    // api, а не implementation: типы движка возвращаются из публичного API :core
+    // (SaveResult, PatternCheck, RuleTarget), значит они часть его контракта.
+    // Room, напротив, остаётся implementation — :app не должен знать про Room.
+    api(project(":engine"))
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // NotificationCompat: уведомления о заблокированных звонках (ТЗ §9.6)
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+
+    // kotlin("test"), а не голый JUnit4: у JUnit4 сообщение в assertEquals идёт ПЕРВЫМ
+    // аргументом, а в :engine используется kotlin.test с сообщением последним. Разный порядок
+    // в разных модулях — готовая ловушка при правках.
+    testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.room:room-testing:$roomVersion")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }
 
 // --- граница модуля, проверяемая сборкой (архитектура §2) ---------------------------------

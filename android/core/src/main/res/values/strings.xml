@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Строки горячего пути. Интерфейс на русском (ТЗ §11.5). -->
+<resources>
+    <string name="channel_blocked">Заблокированные звонки</string>
+    <string name="channel_blocked_description">Уведомление о звонке, который отклонило приложение</string>
+    <string name="channel_role">Состояние блокировки</string>
+    <string name="channel_role_description">Предупреждения о том, что блокировка перестала работать</string>
+
+    <string name="blocked_by_rule">Заблокировано правилом «%1$s»</string>
+    <string name="blocked_no_rule">Звонок заблокирован</string>
+    <string name="hidden_number">Скрытый номер</string>
+
+    <string name="role_lost_title">Блокировка не работает</string>
+    <string name="role_lost_text">Приложение больше не назначено средством проверки звонков</string>
+</resources>

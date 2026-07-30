@@ -1,8 +1,13 @@
 package com.mist3s.nopecall.core.screening
 
+import android.os.UserManager
 import android.telecom.Call
 import android.telecom.CallScreeningService
 import android.util.Log
+import com.mist3s.nopecall.core.CoreGraph
+import com.mist3s.nopecall.core.facts.TelecomCallDetails
+import com.mist3s.nopecall.core.storage.ScreeningRecord
+import com.mist3s.nopecall.engine.Budget
 import com.mist3s.nopecall.engine.Decision
 import com.mist3s.nopecall.engine.DecisionReason
 import com.mist3s.nopecall.engine.Degradation
@@ -15,11 +20,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Проверка входящего звонка (архитектура §4).
  *
- * Текущее состояние: сервис отвечает `ALLOW` на всё и фиксирует тайминги. Это не заглушка,
- * а корректное поведение первого шага — по ТЗ §1.1 приложение блокирует только при
- * совпадении явного правила, а правил и снимка ещё нет. Подключение движка — следующий шаг.
+ * Сервис содержит только то, что нельзя проверить без устройства: привязку Telecom, сторожевой
+ * таймер и отправку ответа. Само решение принимает [ScreeningPipeline], и потому весь путь
+ * «данные системы → факты → снимок → решение» покрыт обычными unit-тестами.
  *
- * Три свойства, которые здесь важнее самой блокировки и потому реализованы сразу:
+ * Три свойства, которые здесь важнее самой блокировки:
  *
  *  1. **Состояние ответа принадлежит звонку, а не сервису.** Telecom может отдать через один
  *     экземпляр несколько звонков (ожидание вызова, две SIM) — поэтому `respondToCall`
@@ -48,25 +53,65 @@ internal class NopeCallScreeningService : CallScreeningService() {
             TimeUnit.MILLISECONDS,
         )
 
-        val decision = try {
-            decide(callDetails)
+        val outcome = try {
+            pipeline().decide(
+                details = TelecomCallDetails(callDetails),
+                budget = Budget.wallClock(
+                    totalNanos = session.budgetMs * 1_000_000,
+                    perRuleNanos = PER_RULE_BUDGET_NANOS,
+                ),
+                coldStart = coldStart,
+            )
         } catch (t: Throwable) {
             // Единая воронка отказов: любой сбой означает разрешить звонок (ТЗ §1.1).
             Log.w(TAG, "сбой при принятии решения, звонок разрешён", t)
-            Decision.allow(DecisionReason.SNAPSHOT_UNAVAILABLE)
-        }.let { if (coldStart) it.withDegradation(Degradation.COLD_START) else it }
+            ScreeningPipeline.Outcome(Decision.allow(DecisionReason.SNAPSHOT_UNAVAILABLE), facts = null)
+        }
 
-        answerOnce(session, decision.copy(elapsedNanos = System.nanoTime() - startedAt))
+        val decision = outcome.decision.copy(elapsedNanos = System.nanoTime() - startedAt)
+        answerOnce(session, decision)
+
+        // Ответ отправлен — задержки звонка больше не существует по определению (архитектура §4.6).
+        //
+        // Синхронная допись одной строки, НЕ выходя из onScreenCall. Это не оптимизация:
+        // сразу после ответа Telecom отвязывается, и при закрытом интерфейсе процесс становится
+        // кэшированным. На прошивках, агрессивно завершающих процессы, асинхронная запись
+        // систематически теряла бы именно те события, ради которых существует режим наблюдения.
+        try {
+            CoreGraph.eventSpool.append(
+                ScreeningRecord(
+                    occurredAt = System.currentTimeMillis(),
+                    facts = outcome.facts,
+                    decision = decision,
+                    matchedRuleTitle = null,
+                    budgetMs = session.budgetMs.toInt(),
+                )
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "не удалось записать событие", t)
+        }
+
+        // Уведомление — только о фактической блокировке: сообщать «звонок прошёл» незачем.
+        if (decision.action.blocks) {
+            runCatching {
+                CoreGraph.notifier.notifyBlocked(
+                    who = outcome.facts?.name?.whole?.raw?.takeIf { it.isNotEmpty() }
+                        ?: outcome.facts?.number?.raw.orEmpty(),
+                    ruleId = decision.matchedRuleId,
+                    ruleTitle = null,
+                )
+            }
+        }
+
+        // Room и сегменты режима наблюдения — асинхронно, вне этого метода.
+        CoreGraph.onEventRecorded()
     }
 
-    /**
-     * Пока движок не подключён — всегда разрешаем. Причина именно `DEFAULT_ACTION`:
-     * проход по правилам завершён честно, просто правил нет.
-     */
-    private fun decide(details: Call.Details): Decision {
-        Log.d(TAG, "проверка: presentation=${details.handlePresentation} handle=${details.handle != null}")
-        return Decision.allow(DecisionReason.DEFAULT_ACTION)
-    }
+    private fun pipeline(): ScreeningPipeline = ScreeningPipeline(
+        snapshots = CoreGraph.snapshots,
+        factsBuilder = CoreGraph.callFactsBuilder,
+        directBoot = { getSystemService(UserManager::class.java)?.isUserUnlocked == false },
+    )
 
     /**
      * Бюджет на решение, отсчитанный от момента создания звонка в Telecom.
@@ -113,6 +158,9 @@ internal class NopeCallScreeningService : CallScreeningService() {
 
         /** Лучше плохой ответ, чем никакой. */
         const val MIN_BUDGET_MS = 250L
+
+        /** Бюджет на одно regex-правило, ТЗ §6.5. */
+        const val PER_RULE_BUDGET_NANOS = 10_000_000L
 
         val WATCHDOG = Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "nope-call-watchdog").apply { isDaemon = true }
