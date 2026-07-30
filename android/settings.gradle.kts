@@ -27,6 +27,9 @@ plugins {
     id("com.android.library") version "8.11.1" apply false
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
     id("org.jetbrains.kotlin.jvm") version "2.2.20" apply false
+    // Версия KSP жёстко привязана к версии Kotlin: суффикс до дефиса обязан совпадать
+    // с версией компилятора, иначе процессор аннотаций не запустится.
+    id("com.google.devtools.ksp") version "2.2.20-2.0.4" apply false
 }
 
 // Структура модулей — архитектура §2.
