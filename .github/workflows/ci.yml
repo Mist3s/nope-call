@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.38.5"
+  JAVA_VERSION: "17"
+
+jobs:
+  analyze:
+    name: Анализ и тесты Dart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - name: Форматирование
+        run: dart format --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+
+  kotlin:
+    name: Движок, границы модулей, сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: gradle/actions/setup-gradle@v4
+      - run: flutter pub get
+
+      # Тесты движка идут отдельным шагом и первыми: это самая содержательная часть,
+      # и она не требует ни Android SDK, ни эмулятора (архитектура §12.2).
+      - name: Тесты движка
+        run: ./gradlew :engine:test
+        working-directory: android
+
+      # Границы модулей — не пожелание, а проверка сборки (архитектура §2).
+      # Падение здесь означает, что Flutter или сеть просочились в горячий путь.
+      - name: Границы модулей
+        run: ./gradlew :core:verifyModuleBoundaries :updater:verifyUpdaterBoundaries
+        working-directory: android
+
+      - name: Unit-тесты Android-модулей
+        run: ./gradlew :core:testDebugUnitTest :updater:testDebugUnitTest
+        working-directory: android
+
+      - name: Сборка debug APK
+        run: flutter build apk --debug
+
+      - name: Версия и CHANGELOG
+        run: ./gradlew :app:verifyReleaseVersion
+        working-directory: android
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: |
+            build/*/reports/
+            engine/build/reports/
+          retention-days: 7

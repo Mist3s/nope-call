@@ -1,0 +1,133 @@
+name: release-apk
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # нужно, чтобы прикрепить APK к GitHub Release по тегу
+
+env:
+  FLUTTER_VERSION: "3.38.5"
+  JAVA_VERSION: "17"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Проверка идёт первой и до сборки: пустые release notes или расхождение версий —
+      # дефект поставки, а не косметика (ТЗ §15.3).
+      - name: Тег, pubspec и CHANGELOG должны совпадать
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pub=$(sed -nE 's/^version:[[:space:]]*([^+]+)\+.*/\1/p' pubspec.yaml | head -1)
+          if [ "$tag" != "$pub" ]; then
+            echo "тег $tag не совпадает с версией в pubspec.yaml ($pub)" >&2
+            exit 1
+          fi
+          grep -q "^## \[$tag\]" CHANGELOG.md || {
+            echo "в CHANGELOG.md нет секции ## [$tag]" >&2
+            exit 1
+          }
+
+      # versionCode обязан строго возрастать: Android не даёт установить поверх сборку
+      # с меньшим значением, а откатить релиз нельзя (ТЗ §15.2, §15.7).
+      - name: versionCode должен возрастать
+        run: |
+          cur=$(sed -nE 's/^version:[[:space:]]*[^+]+\+([0-9]+).*/\1/p' pubspec.yaml | head -1)
+          prev_tag=$(git tag --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1 || true)
+          if [ -n "$prev_tag" ]; then
+            prev=$(git show "$prev_tag:pubspec.yaml" 2>/dev/null |
+                   sed -nE 's/^version:[[:space:]]*[^+]+\+([0-9]+).*/\1/p' | head -1)
+            if [ -n "$prev" ] && [ "$cur" -le "$prev" ]; then
+              echo "versionCode $cur не больше, чем у $prev_tag ($prev)" >&2
+              exit 1
+            fi
+            echo "versionCode $cur > $prev ($prev_tag)"
+          else
+            echo "первый релиз, versionCode $cur"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: Движок, границы модулей, unit-тесты
+        run: |
+          ./gradlew :engine:test \
+                    :core:verifyModuleBoundaries :updater:verifyUpdaterBoundaries \
+                    :core:testReleaseUnitTest :updater:testReleaseUnitTest \
+                    :app:verifyReleaseVersion -PstrictVersion=true
+        working-directory: android
+
+      # Ключ подписи один на всё время жизни проекта. Секреты задаются в настройках
+      # репозитория; офлайн-копия ключа — у заказчика в двух местах (ТЗ §15.4, §20).
+      - name: Ключ подписи из секретов
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "не задан секрет ANDROID_KEYSTORE_BASE64 — релиз подписать нечем" >&2
+            exit 1
+          fi
+          echo "$KS_B64" | base64 -d > android/app/release.jks
+          printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KS_PASS" "$KEY_ALIAS" "$KEY_PASS" > android/key.properties
+
+      - run: flutter build apk --release --split-per-abi
+      - run: flutter build apk --release # универсальный, на случай сомнений в архитектуре
+
+      - name: Активы, суммы, latest.json
+        run: scripts/collect-release-assets.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Release notes из CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ ("^## \\[" v "\\]") {p=1; next}
+            p && /^## \[/ {exit}
+            p {print}
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          {
+            echo
+            echo "### Установка"
+            echo
+            echo "Скачайте APK для своей архитектуры (при сомнениях — \`universal\`) и разрешите"
+            echo "установку из этого источника. Обновление поверх предыдущей версии сохраняет"
+            echo "правила и журнал."
+            echo
+            echo "### Контрольные суммы"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+            echo
+            echo "Отпечаток сертификата подписи: \`$(cat dist/signing-cert-sha256.txt)\`"
+          } >> RELEASE_NOTES.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+            dist/latest.json
