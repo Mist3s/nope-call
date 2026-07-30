@@ -1,0 +1,139 @@
+package com.mist3s.nopecall.engine
+
+/**
+ * Действие над звонком. Отображение в флаги `CallResponse` — на стороне адаптера
+ * (ТЗ §5.2), сам движок про Android не знает.
+ *
+ * Разница между [REJECT] и [DROP] слышна абоненту, поэтому это два разных действия,
+ * а не одно «заблокировать»: при [REJECT] звонящий получает сброс сразу, при [DROP]
+ * продолжает слышать гудки до таймаута или голосовой почты.
+ */
+public enum class CallAction {
+    /** Отклонить: звонящий слышит сброс. `disallow + reject`. */
+    REJECT,
+
+    /** Тихий сброс: звонящий слышит гудки до конца. `disallow`, без `reject`. */
+    DROP,
+
+    /** Без звука: звонок доходит, телефон молчит, ответить можно. `silence`. */
+    SILENCE,
+
+    /** Разрешить. */
+    ALLOW,
+    ;
+
+    /** Блокирует ли действие звонок фактически. */
+    public val blocks: Boolean get() = this == REJECT || this == DROP
+}
+
+/**
+ * Первичный исход: почему получился именно такой ответ.
+ *
+ * Сопутствующие деградации сюда не попадают — для них есть [Degradation], потому что
+ * состояния совмещаются: правило сработало И имя было недоступно, блокировка принята
+ * И одно правило пропущено (архитектура §6.7).
+ */
+public enum class DecisionReason {
+    /** Совпало правило пользователя. */
+    RULE_MATCH,
+
+    /** Проход завершён честно, ни одно правило не совпало. */
+    DEFAULT_ACTION,
+
+    /** Главный выключатель выключен. */
+    DISABLED_BY_USER,
+
+    /** Экстренный номер: разрешается до прохода по правилам, при любых настройках. */
+    EMERGENCY,
+
+    /** Скрытый номер: сопоставлять нечего, решает отдельная настройка. */
+    RESTRICTED_NUMBER,
+
+    /** Номер недоступен или не определён. */
+    UNKNOWN_NUMBER,
+
+    /**
+     * Общий бюджет прохода исчерпан. Всегда даёт `ALLOW`, независимо от `default_action`:
+     * иначе таймаут блокировал бы звонок в режиме «блокировать всё, кроме разрешённого»
+     * (ТЗ §1.1, §6.5).
+     */
+    ENGINE_BUDGET_EXCEEDED,
+
+    /** Снимок правил недоступен или повреждён. */
+    SNAPSHOT_UNAVAILABLE,
+
+    /** Ответил сторожевой таймер: движок не успел. */
+    WATCHDOG_ANSWERED,
+}
+
+/**
+ * Что деградировало по пути к решению. Битовая маска, потому что состояния совмещаются.
+ *
+ * Поля `cold_start` и `direct_boot` из ТЗ §7.1 — часть этой же маски.
+ */
+public enum class Degradation(public val bit: Int) {
+    /** Название звонящего не было доступно к моменту проверки. */
+    NAME_UNAVAILABLE(1 shl 0),
+
+    /** Хотя бы одно правило пропущено из-за ошибки или таймаута. */
+    RULE_SKIPPED(1 shl 1),
+
+    /**
+     * Пропущено именно РАЗРЕШАЮЩЕЕ правило. Отдельный флаг, потому что это меняет решение:
+     * разрешающие правила стоят выше блокирующих, и пропуск сбойного разрешающего иначе
+     * превратил бы разрешённый звонок в заблокированный (ТЗ §6.5, архитектура §6.7).
+     */
+    ALLOW_RULE_SKIPPED(1 shl 2),
+
+    /** Ответ отправил сторожевой таймер, а не движок. */
+    WATCHDOG_ANSWERED(1 shl 3),
+
+    /** Снимок прочитан в формате предыдущей версии. */
+    SNAPSHOT_STALE(1 shl 4),
+
+    /** Индекс контактов устарел: промах не означает отсутствия номера в контактах. */
+    CONTACT_INDEX_STALE(1 shl 5),
+
+    /** Решение принято до первой разблокировки экрана. */
+    DIRECT_BOOT(1 shl 6),
+
+    /** Решение принято на холодном старте процесса. */
+    COLD_START(1 shl 7),
+    ;
+
+    public companion object {
+        public fun maskOf(vararg flags: Degradation): Int = flags.fold(0) { acc, f -> acc or f.bit }
+
+        public fun describe(mask: Int): List<Degradation> = entries.filter { mask and it.bit != 0 }
+    }
+}
+
+/**
+ * Результат проверки звонка.
+ *
+ * @param matchedRuleId правило, определившее решение, если оно было
+ * @param degradations битовая маска [Degradation]
+ * @param elapsedNanos сколько занял проход — для диагностики и режима наблюдения
+ */
+public data class Decision(
+    val action: CallAction,
+    val reason: DecisionReason,
+    val matchedRuleId: Long? = null,
+    val degradations: Int = 0,
+    val elapsedNanos: Long = 0,
+) {
+    public fun has(flag: Degradation): Boolean = degradations and flag.bit != 0
+
+    public fun withDegradation(vararg flags: Degradation): Decision =
+        copy(degradations = degradations or Degradation.maskOf(*flags))
+
+    public companion object {
+        /**
+         * Единственная воронка отказов: любой сбой означает разрешить звонок и записать причину
+         * (ТЗ §1.1, архитектура §6.7). Отдельной логики обработки отказов в компонентах нет —
+         * достаточно, чтобы каждый умел вернуть это.
+         */
+        public fun allow(reason: DecisionReason, vararg flags: Degradation): Decision =
+            Decision(CallAction.ALLOW, reason, degradations = Degradation.maskOf(*flags))
+    }
+}

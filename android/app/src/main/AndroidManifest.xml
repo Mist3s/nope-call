@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Модуль :app — роль bridge (архитектура §2): здесь MainActivity, регистрация Pigeon
+    и всё, что знает про Flutter. Сервис проверки звонков, приёмники и разрешения
+    горячего пути объявлены в манифесте :core и приезжают слиянием.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:name="com.mist3s.nopecall.core.NopeCallApp"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false">
+
+        <!--
+            allowBackup=false и dataExtractionRules — не перестраховка: сырой журнал звонков
+            и логи режима наблюдения не должны уезжать в облако мимо остальных гарантий
+            приватности (ТЗ §11.4, §7.7.4). Перенос правил делается явным экспортом в JSON.
+
+            usesCleartextTraffic=false — сеть есть только у апдейтера и только к GitHub
+            по TLS (ТЗ §15.6).
+        -->
+
+        <activity
+            android:name="com.mist3s.nopecall.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Нужна инструменту Flutter для генерации GeneratedPluginRegistrant -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+        <!-- Звонок из карточки: ACTION_DIAL, без разрешения CALL_PHONE (ТЗ §10) -->
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+    </queries>
+</manifest>

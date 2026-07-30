@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Разрешения апдейтера (ТЗ §15.5, §15.6). Это единственный модуль с сетью — и то, что
+    INTERNET объявлен именно здесь, а не в общем манифесте, делает границу видимой.
+
+    Проверка звонка сетью не пользуется (ТЗ §10): у :core нет ни сетевых зависимостей,
+    ни кода, который бы их вызвал, — это проверяется задачей verifyModuleBoundaries.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        Android не может подменить себя молча: установка APK идёт через системный диалог
+        PackageInstaller, и для этого нужно разрешение ниже плюс разрешённая пользователем
+        установка из этого источника (ТЗ §15.5).
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+</manifest>

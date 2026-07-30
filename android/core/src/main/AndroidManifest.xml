@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Разрешения и компоненты горячего пути (ТЗ §10, архитектура §3).
+    Каждый модуль объявляет то, что нужно ему самому: у :updater свой манифест с INTERNET,
+    и по объединённому манифесту сразу видно, кто что просит.
+
+    CALL_PHONE здесь СОЗНАТЕЛЬНО нет: звонок из карточки делается через ACTION_DIAL,
+    разрешение не нужно (ТЗ §10).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Восстановление снимка и планировщика после перезагрузки (ТЗ §10, §11.3) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Расширенные функции, все опциональные (ТЗ §10) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+
+        <!--
+            Сервис проверки звонков. directBootAware — чтобы звонок проверялся и до первой
+            разблокировки после перезагрузки: правила читаются из снимка в Device Protected
+            Storage, Room в этот момент недоступен (архитектура §3.2, §4.3, §5).
+        -->
+        <service
+            android:name="com.mist3s.nopecall.core.screening.NopeCallScreeningService"
+            android:directBootAware="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+
+        <!--
+            LOCKED_BOOT_COMPLETED приходит до разблокировки — приёмник обязан быть
+            directBootAware, иначе фаза 1 не выполнится и первый звонок после перезагрузки
+            останется без проверки.
+        -->
+        <receiver
+            android:name="com.mist3s.nopecall.core.boot.LockedBootReceiver"
+            android:directBootAware="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            BOOT_COMPLETED и MY_PACKAGE_REPLACED приходят уже после разблокировки — они
+            инициируют фазу 2 и пересборку снимка (архитектура §3, §5.2).
+            ACTION_USER_UNLOCKED здесь НЕ объявлен намеренно: полагаться на доставку неявной
+            рассылки из манифеста нельзя (Android 8+), поэтому он регистрируется в рантайме
+            как ускоритель, а гарантию дают эти два действия и запуск UI.
+        -->
+        <receiver
+            android:name="com.mist3s.nopecall.core.boot.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
