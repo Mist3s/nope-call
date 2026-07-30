@@ -1,8 +1,11 @@
-gradle-wrapper.jar
+# Обёртка Gradle (gradlew, gradlew.bat, gradle-wrapper.jar) СОЗНАТЕЛЬНО отслеживается,
+# хотя шаблон Flutter её игнорирует. Без неё в CI нечем запустить ./gradlew, а версия
+# Gradle перестаёт быть зафиксированной. Плюс gradle/actions проверяет контрольную
+# сумму gradle-wrapper.jar — это защита от подмены обёртки.
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
+# local.properties машинный: пути к Flutter SDK и Android SDK у каждого свои.
+# settings.gradle.kts умеет обходиться без него, читая FLUTTER_ROOT.
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/

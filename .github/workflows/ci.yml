@@ -43,6 +43,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - uses: gradle/actions/setup-gradle@v4
+
+      # `flutter pub get` обязан идти ПЕРЕД любым вызовом ./gradlew: он создаёт
+      # android/local.properties, который читает плагин dev.flutter.flutter-plugin-loader.
+      # Файл машинный и в репозитории его нет, поэтому переставлять шаги нельзя —
+      # Gradle упадёт с FileNotFoundException.
       - run: flutter pub get
 
       # Тесты движка идут отдельным шагом и первыми: это самая содержательная часть,

@@ -1,6 +1,10 @@
 pluginManagement {
     val flutterSdkPath =
         run {
+            // local.properties — машинный файл, в репозиторий не попадает. Его создаёт
+            // `flutter pub get`, поэтому любой вызов ./gradlew обязан идти ПОСЛЕ него.
+            // Резервного пути тут быть не может: плагин dev.flutter.flutter-plugin-loader
+            // ниже читает этот файл сам, и обойти это из нашего кода нельзя.
             val properties = java.util.Properties()
             file("local.properties").inputStream().use { properties.load(it) }
             val flutterSdkPath = properties.getProperty("flutter.sdk")

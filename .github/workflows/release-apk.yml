@@ -63,6 +63,8 @@ jobs:
           cache: true
       - uses: gradle/actions/setup-gradle@v4
 
+      # flutter pub get создаёт android/local.properties, без которого не запустится
+      # ни один ./gradlew — порядок шагов менять нельзя.
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
