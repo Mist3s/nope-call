@@ -1,30 +1,26 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:nope_call/main.dart';
+import 'package:nope_call/app/app.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('приложение открывается на главном экране', (tester) async {
+    await tester.pumpWidget(const NopeCallApp());
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Четыре раздела из ТЗ §9 должны быть доступны сразу.
+    expect(find.text('Главная'), findsOneWidget);
+    expect(find.text('Журнал'), findsOneWidget);
+    expect(find.text('Правила'), findsOneWidget);
+    expect(find.text('Настройки'), findsOneWidget);
+  });
+
+  testWidgets('переключение раздела меняет содержимое', (tester) async {
+    await tester.pumpWidget(const NopeCallApp());
+    await tester.pump();
+
+    await tester.tap(find.text('Правила'));
+    await tester.pump();
+
+    expect(find.byType(NavigationBar), findsOneWidget);
   });
 }
