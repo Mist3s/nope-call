@@ -66,6 +66,9 @@ public class SnapshotStore(
 
     public fun exists(): Boolean = file.isFile
 
+    /** Когда снимок собран последний раз. `null` — снимка нет. Нужно диагностике (ТЗ §9.7). */
+    public fun lastModified(): Long? = if (file.isFile) file.lastModified() else null
+
     /**
      * Снимок для принятия решения. Из кэша, если он есть; иначе одно чтение с диска.
      *
