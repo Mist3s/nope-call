@@ -33,6 +33,12 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    // Схемы Room подкладываются в ресурсы тестов: MigrationTestHelper ищет их именно в assets,
+    // и без этой строки тест миграции падает с FileNotFoundException, а не с расхождением схемы.
+    sourceSets {
+        getByName("test") { assets.srcDirs("$projectDir/schemas") }
+    }
 }
 
 // Схемы Room экспортируются в репозиторий: без них нельзя написать тест миграции,
