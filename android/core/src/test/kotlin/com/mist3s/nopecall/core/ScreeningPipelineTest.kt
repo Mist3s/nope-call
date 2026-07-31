@@ -67,6 +67,56 @@ class ScreeningPipelineTest {
     private var counter = 0
 
     @Test
+    fun `исходящий звонок не проверяется правилами`() {
+        // `CallScreeningService` вызывается и для исходящих. Без этой ветки блокирующее правило
+        // совпало бы на номере, который пользователь набрал сам, — и звонок был бы отклонён
+        // или в журнале появилась бы запись «отклонён» о звонке, который состоялся.
+        val (p, _) = pipeline(
+            listOf(BlockRule(1, "Москва", RuleTarget.NUMBER, MatchType.PREFIX, "8495",
+                CallAction.REJECT, 600))
+        )
+        val out = p.decide(
+            FakeCallDetails(handleValue = "+74951234567", callDirection = 1),
+            Budget.unlimited(),
+            coldStart = false,
+        )
+        assertEquals(CallAction.ALLOW, out.decision.action)
+        assertEquals(DecisionReason.OUTGOING_CALL, out.decision.reason)
+        assertNull(out.decision.matchedRuleId, "правила по исходящему не проверяются вовсе")
+    }
+
+    @Test
+    fun `неизвестное направление считается входящим`() {
+        // Часть прошивок Android 10 направления не отдаёт. Трактовать `null` как исходящий
+        // означало бы отключить блокировку целиком — то есть починить одно, сломав главное.
+        val (p, _) = pipeline(
+            listOf(BlockRule(1, "Москва", RuleTarget.NUMBER, MatchType.PREFIX, "8495",
+                CallAction.REJECT, 600))
+        )
+        val out = p.decide(
+            FakeCallDetails(handleValue = "+74951234567", callDirection = null),
+            Budget.unlimited(),
+            coldStart = false,
+        )
+        assertEquals(CallAction.REJECT, out.decision.action)
+    }
+
+    @Test
+    fun `входящий звонок проверяется как раньше`() {
+        val (p, _) = pipeline(
+            listOf(BlockRule(1, "Москва", RuleTarget.NUMBER, MatchType.PREFIX, "8495",
+                CallAction.REJECT, 600))
+        )
+        val out = p.decide(
+            FakeCallDetails(handleValue = "+74951234567", callDirection = 0),
+            Budget.unlimited(),
+            coldStart = false,
+        )
+        assertEquals(CallAction.REJECT, out.decision.action)
+        assertEquals(DecisionReason.RULE_MATCH, out.decision.reason)
+    }
+
+    @Test
     fun `правило по номеру блокирует звонок`() {
         val (p, _) = pipeline(
             listOf(BlockRule(1, "Москва", RuleTarget.NUMBER, MatchType.PREFIX, "8495",
