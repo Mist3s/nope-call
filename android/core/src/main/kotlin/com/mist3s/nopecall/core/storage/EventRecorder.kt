@@ -15,15 +15,25 @@ public data class ScreeningRecord(
     val decision: Decision,
     val matchedRuleTitle: String?,
     val budgetMs: Int,
+    /**
+     * Диагностика и контекст сети (ТЗ §7.1, §7.7.5).
+     *
+     * Хранится в журнале, а не только в сегментах режима наблюдения: иначе сводку §7.7.5
+     * пришлось бы считать разбором логов на каждое открытие экрана.
+     */
+    val diagnostics: ScreeningDiagnostics = ScreeningDiagnostics.NONE,
 ) {
     /**
      * Одна строка для синхронной дописи. Формат — табулированный, а не JSON: строка собирается
      * в горячем пути сразу после ответа системе, и разбор её потом делает спокойный код.
+     *
+     * Поля только дописываются в конец. Разбор принимает и короткую строку: после обновления
+     * приложения в очереди может лежать запись прежнего формата, и терять её незачем.
      */
     internal fun toLine(): String = listOf(
         occurredAt.toString(),
         facts?.number?.raw.orEmpty().sanitize(),
-        facts?.number?.digits.orEmpty(),
+        facts?.number?.let { it.canonicalDigits.ifEmpty { it.digits } }.orEmpty(),
         facts?.number?.e164.orEmpty(),
         facts?.presentation?.name.orEmpty(),
         facts?.name?.whole?.raw.orEmpty().sanitize(),
@@ -35,9 +45,40 @@ public data class ScreeningRecord(
         matchedRuleTitle.orEmpty().sanitize(),
         (decision.elapsedNanos / 1_000_000).toString(),
         budgetMs.toString(),
+        diagnostics.coldStart.toFlag(),
+        diagnostics.directBoot.toFlag(),
+        diagnostics.networkType.orEmpty().sanitize(),
+        diagnostics.volte.toFlag(),
+        diagnostics.operatorName.orEmpty().sanitize(),
+        diagnostics.roaming.toFlag(),
+        diagnostics.extrasKeys.joinToString(",").sanitize(),
+        diagnostics.verificationStatus?.toString().orEmpty(),
     ).joinToString("\t")
 
     private fun String.sanitize(): String = replace('\t', ' ').replace('\n', ' ')
+
+    /** Три состояния, а не два: «не определяли» — не то же самое, что «нет». */
+    private fun Boolean?.toFlag(): String = when (this) {
+        true -> "1"
+        false -> "0"
+        null -> ""
+    }
+}
+
+/** Диагностика одной проверки: как шёл звонок и в какой сети (ТЗ §7.1, §7.7.1). */
+public data class ScreeningDiagnostics(
+    val coldStart: Boolean? = null,
+    val directBoot: Boolean? = null,
+    val networkType: String? = null,
+    val volte: Boolean? = null,
+    val operatorName: String? = null,
+    val roaming: Boolean? = null,
+    val extrasKeys: List<String> = emptyList(),
+    val verificationStatus: Int? = null,
+) {
+    public companion object {
+        public val NONE: ScreeningDiagnostics = ScreeningDiagnostics()
+    }
 }
 
 /**
@@ -134,7 +175,9 @@ public class EventRecorder(
         val entity = ScreeningEventEntity(
             occurredAt = record.occurredAt,
             rawNumber = facts?.number?.raw.orEmpty(),
-            digits = facts?.number?.digits.orEmpty(),
+            // Каноническая форма: по ней идут сшивка, фильтры и предпросмотр. Как пришёл
+            // номер, видно в rawNumber (архитектура §5.4).
+            digits = facts?.number?.let { it.canonicalDigits.ifEmpty { it.digits } }.orEmpty(),
             e164 = facts?.number?.e164,
             presentation = facts?.presentation?.name ?: "UNKNOWN",
             nameRaw = facts?.name?.whole?.raw?.takeIf { it.isNotEmpty() },
@@ -155,8 +198,15 @@ public class EventRecorder(
             matchedRuleTitle = record.matchedRuleTitle,
             latencyMs = (record.decision.elapsedNanos / 1_000_000).toInt(),
             budgetMs = record.budgetMs,
-            verificationStatus = null,
+            verificationStatus = record.diagnostics.verificationStatus,
             canonVersion = RuleSnapshot.CURRENT_CANON_VERSION,
+            coldStart = record.diagnostics.coldStart,
+            directBoot = record.diagnostics.directBoot,
+            networkType = record.diagnostics.networkType,
+            volte = record.diagnostics.volte,
+            operatorName = record.diagnostics.operatorName,
+            roaming = record.diagnostics.roaming,
+            extrasKeys = record.diagnostics.extrasKeys.takeIf { it.isNotEmpty() }?.joinToString(","),
         )
         val id = db.events().insert(entity)
 

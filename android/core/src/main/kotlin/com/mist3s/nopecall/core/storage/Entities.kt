@@ -111,6 +111,26 @@ public data class ScreeningEventEntity(
     /** Сшивка с зеркалом системного журнала (ТЗ §7.3). */
     @ColumnInfo(name = "matchedSystemId") val matchedSystemId: Long? = null,
     val canonVersion: Int,
+
+    // --- диагностика и сводка режима наблюдения (ТЗ §7.1, §7.7.5) ---------------------------
+    //
+    // Эти поля живут здесь, а не только в сегментах JSONL, ради сводки §7.7.5: иначе экран
+    // режима пришлось бы считать разбором логов, то есть читать десятки мегабайт JSON на
+    // каждое открытие. `null` везде значит «не определяли», а не «нет».
+    val coldStart: Boolean? = null,
+    val directBoot: Boolean? = null,
+    val networkType: String? = null,
+    val volte: Boolean? = null,
+    val operatorName: String? = null,
+    val roaming: Boolean? = null,
+    /**
+     * Ключи `extras`, встретившиеся в звонке, через запятую — без значений.
+     *
+     * Только ключи: сводка отвечает на вопрос «куда вендор мог положить подпись», а значения
+     * для этого не нужны и содержат персональные данные. Полный дамп со значениями остаётся
+     * в сегментах режима наблюдения (ТЗ §7.7.1).
+     */
+    val extrasKeys: String? = null,
 )
 
 /**
@@ -146,3 +166,14 @@ public data class CallLogMirrorEntity(
 
 /** Проекция «идентификатор — название правила». */
 public data class RuleTitle(val id: Long, val title: String)
+
+/** Проекция «значение — сколько раз встретилось». Для разбивок сводки (ТЗ §7.7.5). */
+public data class Bucket(val bucket: String, val total: Int)
+
+/** Наблюдённая операторская подпись: дословно, со свёрнутой формой рядом (ТЗ §7.7.5). */
+public data class SignatureSample(
+    val raw: String,
+    val fold: String?,
+    val total: Int,
+    val lastAt: Long,
+)
