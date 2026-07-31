@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../data/nope_call_api.g.dart';
+
 /// Пустое состояние с объяснением, а не с одной иконкой.
 class EmptyState extends StatelessWidget {
   const EmptyState({
@@ -47,6 +49,57 @@ class EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Русская форма числительного: 1 запись, 2 записи, 5 записей.
+///
+/// Нужна потому, что «уйдёт 2 событий» выдаёт машинный перевод, а не приложение, которое
+/// кто-то делал руками. Правило то же, что в CLDR: 11–14 всегда множественная форма,
+/// поэтому «21 запись», но «11 записей».
+String plural(int count, String one, String few, String many) {
+  final mod100 = count.abs() % 100;
+  final mod10 = count.abs() % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 == 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
+/// Текст предпросмотра правила (ТЗ §18 п. 16).
+///
+/// Три величины, и вторые две важнее первой: журнал говорит «столько таких звонков уже было»,
+/// а «разрешённых» и «контактов» отвечают на другой вопрос — сколько своих правило отрежет.
+/// Номер, по которому ещё не звонили, в журнале отсутствует, но в книге есть — и именно он
+/// делает жалобу «заблокировали врача» возможной.
+String previewText(PreviewDto preview) {
+  final parts = <String>[];
+  if (preview.count == 0) {
+    parts.add('В журнале таких звонков нет');
+  } else {
+    parts.add(
+      'Подходит под ${preview.truncated ? '≥ ' : ''}${preview.count} '
+      '${plural(preview.count, 'запись', 'записи', 'записей')} журнала',
+    );
+  }
+
+  final contacts = preview.contactsCovered;
+  if (contacts == null) {
+    parts.add('контакты не проверены: нет доступа к телефонной книге');
+  } else if (contacts > 0) {
+    parts.add(
+      'зацепит ${preview.contactsTruncated ? '≥ ' : ''}$contacts '
+      '${plural(contacts, 'контакт', 'контакта', 'контактов')}',
+    );
+  }
+
+  final allowed = preview.allowRulesCovered ?? 0;
+  if (allowed > 0) {
+    parts.add(
+      'перекроет $allowed ${plural(allowed, 'разрешающее', 'разрешающих', 'разрешающих')} '
+      '${plural(allowed, 'правило', 'правила', 'правил')}',
+    );
+  }
+  return parts.join(' · ');
 }
 
 String formatTime(int millis) {

@@ -211,6 +211,12 @@ data class SetupStatus (
    * NO_NOTIFICATIONS. Строками, а не перечислением, чтобы добавление кода не ломало мост.
    */
   val problems: List<String>,
+  /**
+   * Что произойдёт, если ни одно правило не совпало: ALLOW / REJECT / DROP / SILENCE.
+   * Часть состояния, а не только настройка: от него зависит, что приложение обещает
+   * на главном экране, и обещание обязано совпадать с поведением.
+   */
+  val defaultAction: String,
   val lastScreeningAt: Long? = null
 )
  {
@@ -224,8 +230,9 @@ data class SetupStatus (
       val blockingActive = pigeonVar_list[5] as Boolean
       val enabledRuleCount = pigeonVar_list[6] as Long
       val problems = pigeonVar_list[7] as List<String>
-      val lastScreeningAt = pigeonVar_list[8] as Long?
-      return SetupStatus(hasRole, hasCallLog, hasContacts, hasNotifications, blockingEnabled, blockingActive, enabledRuleCount, problems, lastScreeningAt)
+      val defaultAction = pigeonVar_list[8] as String
+      val lastScreeningAt = pigeonVar_list[9] as Long?
+      return SetupStatus(hasRole, hasCallLog, hasContacts, hasNotifications, blockingEnabled, blockingActive, enabledRuleCount, problems, defaultAction, lastScreeningAt)
     }
   }
   fun toList(): List<Any?> {
@@ -238,6 +245,7 @@ data class SetupStatus (
       blockingActive,
       enabledRuleCount,
       problems,
+      defaultAction,
       lastScreeningAt,
     )
   }
@@ -249,7 +257,7 @@ data class SetupStatus (
       return true
     }
     val other = other as SetupStatus
-    return NopeCallApiPigeonUtils.deepEquals(this.hasRole, other.hasRole) && NopeCallApiPigeonUtils.deepEquals(this.hasCallLog, other.hasCallLog) && NopeCallApiPigeonUtils.deepEquals(this.hasContacts, other.hasContacts) && NopeCallApiPigeonUtils.deepEquals(this.hasNotifications, other.hasNotifications) && NopeCallApiPigeonUtils.deepEquals(this.blockingEnabled, other.blockingEnabled) && NopeCallApiPigeonUtils.deepEquals(this.blockingActive, other.blockingActive) && NopeCallApiPigeonUtils.deepEquals(this.enabledRuleCount, other.enabledRuleCount) && NopeCallApiPigeonUtils.deepEquals(this.problems, other.problems) && NopeCallApiPigeonUtils.deepEquals(this.lastScreeningAt, other.lastScreeningAt)
+    return NopeCallApiPigeonUtils.deepEquals(this.hasRole, other.hasRole) && NopeCallApiPigeonUtils.deepEquals(this.hasCallLog, other.hasCallLog) && NopeCallApiPigeonUtils.deepEquals(this.hasContacts, other.hasContacts) && NopeCallApiPigeonUtils.deepEquals(this.hasNotifications, other.hasNotifications) && NopeCallApiPigeonUtils.deepEquals(this.blockingEnabled, other.blockingEnabled) && NopeCallApiPigeonUtils.deepEquals(this.blockingActive, other.blockingActive) && NopeCallApiPigeonUtils.deepEquals(this.enabledRuleCount, other.enabledRuleCount) && NopeCallApiPigeonUtils.deepEquals(this.problems, other.problems) && NopeCallApiPigeonUtils.deepEquals(this.defaultAction, other.defaultAction) && NopeCallApiPigeonUtils.deepEquals(this.lastScreeningAt, other.lastScreeningAt)
   }
 
   override fun hashCode(): Int {
@@ -262,11 +270,12 @@ data class SetupStatus (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.blockingActive)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.enabledRuleCount)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.problems)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.defaultAction)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lastScreeningAt)
     return result
   }
   override fun toString(): String {
-    return "SetupStatus(hasRole=$hasRole, hasCallLog=$hasCallLog, hasContacts=$hasContacts, hasNotifications=$hasNotifications, blockingEnabled=$blockingEnabled, blockingActive=$blockingActive, enabledRuleCount=$enabledRuleCount, problems=$problems, lastScreeningAt=$lastScreeningAt)"
+    return "SetupStatus(hasRole=$hasRole, hasCallLog=$hasCallLog, hasContacts=$hasContacts, hasNotifications=$hasNotifications, blockingEnabled=$blockingEnabled, blockingActive=$blockingActive, enabledRuleCount=$enabledRuleCount, problems=$problems, defaultAction=$defaultAction, lastScreeningAt=$lastScreeningAt)"
   }
 }
 
@@ -478,53 +487,81 @@ data class SaveRuleResult (
 /** Generated class from Pigeon that represents data sent in messages. */
 data class JournalItemDto (
   val id: Long,
+  /**
+   * `0` — запись системного журнала, `1` — только наша проверка. Вместе с `id` уникально:
+   * идентификаторы двух таблиц легко совпадают численно.
+   */
+  val sourceRank: Long,
   val occurredAt: Long,
+  /**
+   * Тип записи для интерфейса (ТЗ §7.4): BLOCKED_BY_APP, BLOCKED_EXTERNAL, SILENCED,
+   * INCOMING_ANSWERED, MISSED, REJECTED_BY_USER, OUTGOING, VOICEMAIL, CHECKED_ALLOWED, UNKNOWN.
+   */
+  val kind: String,
   val rawNumber: String,
   val nameSource: String,
-  val action: String,
-  val reason: String,
-  val latencyMs: Long,
   val blockedByUs: Boolean,
   val hadSignature: Boolean,
+  /** `null` — звонок проверяли не мы: запись пришла из системного журнала. */
+  val action: String? = null,
+  val reason: String? = null,
+  val latencyMs: Long? = null,
+  /** `null` — исход неизвестен, а не «ноль секунд» (ТЗ §7.2). */
+  val durationSeconds: Long? = null,
   val e164: String? = null,
   val nameRaw: String? = null,
   val matchedRuleId: Long? = null,
-  val matchedRuleTitle: String? = null
+  val matchedRuleTitle: String? = null,
+  val eventId: Long? = null,
+  val systemId: Long? = null,
+  val phoneAccountId: String? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): JournalItemDto {
       val id = pigeonVar_list[0] as Long
-      val occurredAt = pigeonVar_list[1] as Long
-      val rawNumber = pigeonVar_list[2] as String
-      val nameSource = pigeonVar_list[3] as String
-      val action = pigeonVar_list[4] as String
-      val reason = pigeonVar_list[5] as String
-      val latencyMs = pigeonVar_list[6] as Long
-      val blockedByUs = pigeonVar_list[7] as Boolean
-      val hadSignature = pigeonVar_list[8] as Boolean
-      val e164 = pigeonVar_list[9] as String?
-      val nameRaw = pigeonVar_list[10] as String?
-      val matchedRuleId = pigeonVar_list[11] as Long?
-      val matchedRuleTitle = pigeonVar_list[12] as String?
-      return JournalItemDto(id, occurredAt, rawNumber, nameSource, action, reason, latencyMs, blockedByUs, hadSignature, e164, nameRaw, matchedRuleId, matchedRuleTitle)
+      val sourceRank = pigeonVar_list[1] as Long
+      val occurredAt = pigeonVar_list[2] as Long
+      val kind = pigeonVar_list[3] as String
+      val rawNumber = pigeonVar_list[4] as String
+      val nameSource = pigeonVar_list[5] as String
+      val blockedByUs = pigeonVar_list[6] as Boolean
+      val hadSignature = pigeonVar_list[7] as Boolean
+      val action = pigeonVar_list[8] as String?
+      val reason = pigeonVar_list[9] as String?
+      val latencyMs = pigeonVar_list[10] as Long?
+      val durationSeconds = pigeonVar_list[11] as Long?
+      val e164 = pigeonVar_list[12] as String?
+      val nameRaw = pigeonVar_list[13] as String?
+      val matchedRuleId = pigeonVar_list[14] as Long?
+      val matchedRuleTitle = pigeonVar_list[15] as String?
+      val eventId = pigeonVar_list[16] as Long?
+      val systemId = pigeonVar_list[17] as Long?
+      val phoneAccountId = pigeonVar_list[18] as String?
+      return JournalItemDto(id, sourceRank, occurredAt, kind, rawNumber, nameSource, blockedByUs, hadSignature, action, reason, latencyMs, durationSeconds, e164, nameRaw, matchedRuleId, matchedRuleTitle, eventId, systemId, phoneAccountId)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       id,
+      sourceRank,
       occurredAt,
+      kind,
       rawNumber,
       nameSource,
+      blockedByUs,
+      hadSignature,
       action,
       reason,
       latencyMs,
-      blockedByUs,
-      hadSignature,
+      durationSeconds,
       e164,
       nameRaw,
       matchedRuleId,
       matchedRuleTitle,
+      eventId,
+      systemId,
+      phoneAccountId,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -535,28 +572,154 @@ data class JournalItemDto (
       return true
     }
     val other = other as JournalItemDto
-    return NopeCallApiPigeonUtils.deepEquals(this.id, other.id) && NopeCallApiPigeonUtils.deepEquals(this.occurredAt, other.occurredAt) && NopeCallApiPigeonUtils.deepEquals(this.rawNumber, other.rawNumber) && NopeCallApiPigeonUtils.deepEquals(this.nameSource, other.nameSource) && NopeCallApiPigeonUtils.deepEquals(this.action, other.action) && NopeCallApiPigeonUtils.deepEquals(this.reason, other.reason) && NopeCallApiPigeonUtils.deepEquals(this.latencyMs, other.latencyMs) && NopeCallApiPigeonUtils.deepEquals(this.blockedByUs, other.blockedByUs) && NopeCallApiPigeonUtils.deepEquals(this.hadSignature, other.hadSignature) && NopeCallApiPigeonUtils.deepEquals(this.e164, other.e164) && NopeCallApiPigeonUtils.deepEquals(this.nameRaw, other.nameRaw) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleId, other.matchedRuleId) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleTitle, other.matchedRuleTitle)
+    return NopeCallApiPigeonUtils.deepEquals(this.id, other.id) && NopeCallApiPigeonUtils.deepEquals(this.sourceRank, other.sourceRank) && NopeCallApiPigeonUtils.deepEquals(this.occurredAt, other.occurredAt) && NopeCallApiPigeonUtils.deepEquals(this.kind, other.kind) && NopeCallApiPigeonUtils.deepEquals(this.rawNumber, other.rawNumber) && NopeCallApiPigeonUtils.deepEquals(this.nameSource, other.nameSource) && NopeCallApiPigeonUtils.deepEquals(this.blockedByUs, other.blockedByUs) && NopeCallApiPigeonUtils.deepEquals(this.hadSignature, other.hadSignature) && NopeCallApiPigeonUtils.deepEquals(this.action, other.action) && NopeCallApiPigeonUtils.deepEquals(this.reason, other.reason) && NopeCallApiPigeonUtils.deepEquals(this.latencyMs, other.latencyMs) && NopeCallApiPigeonUtils.deepEquals(this.durationSeconds, other.durationSeconds) && NopeCallApiPigeonUtils.deepEquals(this.e164, other.e164) && NopeCallApiPigeonUtils.deepEquals(this.nameRaw, other.nameRaw) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleId, other.matchedRuleId) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleTitle, other.matchedRuleTitle) && NopeCallApiPigeonUtils.deepEquals(this.eventId, other.eventId) && NopeCallApiPigeonUtils.deepEquals(this.systemId, other.systemId) && NopeCallApiPigeonUtils.deepEquals(this.phoneAccountId, other.phoneAccountId)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.id)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.sourceRank)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.occurredAt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.kind)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.rawNumber)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameSource)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.blockedByUs)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hadSignature)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.action)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.reason)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyMs)
-    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.blockedByUs)
-    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hadSignature)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.durationSeconds)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.e164)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameRaw)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matchedRuleId)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matchedRuleTitle)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.eventId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.systemId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.phoneAccountId)
     return result
   }
   override fun toString(): String {
-    return "JournalItemDto(id=$id, occurredAt=$occurredAt, rawNumber=$rawNumber, nameSource=$nameSource, action=$action, reason=$reason, latencyMs=$latencyMs, blockedByUs=$blockedByUs, hadSignature=$hadSignature, e164=$e164, nameRaw=$nameRaw, matchedRuleId=$matchedRuleId, matchedRuleTitle=$matchedRuleTitle)"
+    return "JournalItemDto(id=$id, sourceRank=$sourceRank, occurredAt=$occurredAt, kind=$kind, rawNumber=$rawNumber, nameSource=$nameSource, blockedByUs=$blockedByUs, hadSignature=$hadSignature, action=$action, reason=$reason, latencyMs=$latencyMs, durationSeconds=$durationSeconds, e164=$e164, nameRaw=$nameRaw, matchedRuleId=$matchedRuleId, matchedRuleTitle=$matchedRuleTitle, eventId=$eventId, systemId=$systemId, phoneAccountId=$phoneAccountId)"
+  }
+}
+
+/**
+ * Курсор страницы журнала. Тройной: метки времени совпадают у соседних записей при пакетной
+ * вставке зеркала, а `id` уникален только внутри своей таблицы (архитектура §7.3).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class JournalCursorDto (
+  val at: Long,
+  val sourceRank: Long,
+  val id: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): JournalCursorDto {
+      val at = pigeonVar_list[0] as Long
+      val sourceRank = pigeonVar_list[1] as Long
+      val id = pigeonVar_list[2] as Long
+      return JournalCursorDto(at, sourceRank, id)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      at,
+      sourceRank,
+      id,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as JournalCursorDto
+    return NopeCallApiPigeonUtils.deepEquals(this.at, other.at) && NopeCallApiPigeonUtils.deepEquals(this.sourceRank, other.sourceRank) && NopeCallApiPigeonUtils.deepEquals(this.id, other.id)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.at)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.sourceRank)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.id)
+    return result
+  }
+  override fun toString(): String {
+    return "JournalCursorDto(at=$at, sourceRank=$sourceRank, id=$id)"
+  }
+}
+
+/**
+ * Фильтры журнала (ТЗ §7.5). Складываются по «И»; `null` — «не фильтровать».
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class JournalFilterDto (
+  /** ALL, BLOCKED_BY_US, BLOCKED_ANY, INCOMING, OUTGOING, MISSED, SILENCED. */
+  val kind: String,
+  val digitsQuery: String? = null,
+  val nameQuery: String? = null,
+  val hadSignature: Boolean? = null,
+  val fromAt: Long? = null,
+  val toAt: Long? = null,
+  val ruleId: Long? = null,
+  val sim: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): JournalFilterDto {
+      val kind = pigeonVar_list[0] as String
+      val digitsQuery = pigeonVar_list[1] as String?
+      val nameQuery = pigeonVar_list[2] as String?
+      val hadSignature = pigeonVar_list[3] as Boolean?
+      val fromAt = pigeonVar_list[4] as Long?
+      val toAt = pigeonVar_list[5] as Long?
+      val ruleId = pigeonVar_list[6] as Long?
+      val sim = pigeonVar_list[7] as String?
+      return JournalFilterDto(kind, digitsQuery, nameQuery, hadSignature, fromAt, toAt, ruleId, sim)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      kind,
+      digitsQuery,
+      nameQuery,
+      hadSignature,
+      fromAt,
+      toAt,
+      ruleId,
+      sim,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as JournalFilterDto
+    return NopeCallApiPigeonUtils.deepEquals(this.kind, other.kind) && NopeCallApiPigeonUtils.deepEquals(this.digitsQuery, other.digitsQuery) && NopeCallApiPigeonUtils.deepEquals(this.nameQuery, other.nameQuery) && NopeCallApiPigeonUtils.deepEquals(this.hadSignature, other.hadSignature) && NopeCallApiPigeonUtils.deepEquals(this.fromAt, other.fromAt) && NopeCallApiPigeonUtils.deepEquals(this.toAt, other.toAt) && NopeCallApiPigeonUtils.deepEquals(this.ruleId, other.ruleId) && NopeCallApiPigeonUtils.deepEquals(this.sim, other.sim)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.kind)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.digitsQuery)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameQuery)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hadSignature)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.fromAt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.toAt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.ruleId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.sim)
+    return result
+  }
+  override fun toString(): String {
+    return "JournalFilterDto(kind=$kind, digitsQuery=$digitsQuery, nameQuery=$nameQuery, hadSignature=$hadSignature, fromAt=$fromAt, toAt=$toAt, ruleId=$ruleId, sim=$sim)"
   }
 }
 
@@ -564,29 +727,22 @@ data class JournalItemDto (
 data class JournalPageDto (
   val items: List<JournalItemDto>,
   val hasMore: Boolean,
-  /**
-   * Курсор составной: метки времени в миллисекундах совпадают у соседних записей при
-   * пакетной вставке, и курсор по одному полю пропускал бы строки (архитектура §7.3).
-   */
-  val nextBeforeTime: Long? = null,
-  val nextBeforeId: Long? = null
+  val next: JournalCursorDto? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): JournalPageDto {
       val items = pigeonVar_list[0] as List<JournalItemDto>
       val hasMore = pigeonVar_list[1] as Boolean
-      val nextBeforeTime = pigeonVar_list[2] as Long?
-      val nextBeforeId = pigeonVar_list[3] as Long?
-      return JournalPageDto(items, hasMore, nextBeforeTime, nextBeforeId)
+      val next = pigeonVar_list[2] as JournalCursorDto?
+      return JournalPageDto(items, hasMore, next)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       items,
       hasMore,
-      nextBeforeTime,
-      nextBeforeId,
+      next,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -597,19 +753,18 @@ data class JournalPageDto (
       return true
     }
     val other = other as JournalPageDto
-    return NopeCallApiPigeonUtils.deepEquals(this.items, other.items) && NopeCallApiPigeonUtils.deepEquals(this.hasMore, other.hasMore) && NopeCallApiPigeonUtils.deepEquals(this.nextBeforeTime, other.nextBeforeTime) && NopeCallApiPigeonUtils.deepEquals(this.nextBeforeId, other.nextBeforeId)
+    return NopeCallApiPigeonUtils.deepEquals(this.items, other.items) && NopeCallApiPigeonUtils.deepEquals(this.hasMore, other.hasMore) && NopeCallApiPigeonUtils.deepEquals(this.next, other.next)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.items)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hasMore)
-    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nextBeforeTime)
-    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nextBeforeId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.next)
     return result
   }
   override fun toString(): String {
-    return "JournalPageDto(items=$items, hasMore=$hasMore, nextBeforeTime=$nextBeforeTime, nextBeforeId=$nextBeforeId)"
+    return "JournalPageDto(items=$items, hasMore=$hasMore, next=$next)"
   }
 }
 
@@ -619,6 +774,11 @@ data class SummaryDto (
   val totalEvents: Long,
   val withSignatureLast100: Long,
   val checkedLast100: Long,
+  /**
+   * Сколько записей пришло из системного журнала. Ноль при выданном разрешении — сигнал,
+   * что синхронизация не работает, а не что звонков не было.
+   */
+  val mirrorRecords: Long,
   val lastEventAt: Long? = null
 )
  {
@@ -628,8 +788,9 @@ data class SummaryDto (
       val totalEvents = pigeonVar_list[1] as Long
       val withSignatureLast100 = pigeonVar_list[2] as Long
       val checkedLast100 = pigeonVar_list[3] as Long
-      val lastEventAt = pigeonVar_list[4] as Long?
-      return SummaryDto(blockedToday, totalEvents, withSignatureLast100, checkedLast100, lastEventAt)
+      val mirrorRecords = pigeonVar_list[4] as Long
+      val lastEventAt = pigeonVar_list[5] as Long?
+      return SummaryDto(blockedToday, totalEvents, withSignatureLast100, checkedLast100, mirrorRecords, lastEventAt)
     }
   }
   fun toList(): List<Any?> {
@@ -638,6 +799,7 @@ data class SummaryDto (
       totalEvents,
       withSignatureLast100,
       checkedLast100,
+      mirrorRecords,
       lastEventAt,
     )
   }
@@ -649,7 +811,7 @@ data class SummaryDto (
       return true
     }
     val other = other as SummaryDto
-    return NopeCallApiPigeonUtils.deepEquals(this.blockedToday, other.blockedToday) && NopeCallApiPigeonUtils.deepEquals(this.totalEvents, other.totalEvents) && NopeCallApiPigeonUtils.deepEquals(this.withSignatureLast100, other.withSignatureLast100) && NopeCallApiPigeonUtils.deepEquals(this.checkedLast100, other.checkedLast100) && NopeCallApiPigeonUtils.deepEquals(this.lastEventAt, other.lastEventAt)
+    return NopeCallApiPigeonUtils.deepEquals(this.blockedToday, other.blockedToday) && NopeCallApiPigeonUtils.deepEquals(this.totalEvents, other.totalEvents) && NopeCallApiPigeonUtils.deepEquals(this.withSignatureLast100, other.withSignatureLast100) && NopeCallApiPigeonUtils.deepEquals(this.checkedLast100, other.checkedLast100) && NopeCallApiPigeonUtils.deepEquals(this.mirrorRecords, other.mirrorRecords) && NopeCallApiPigeonUtils.deepEquals(this.lastEventAt, other.lastEventAt)
   }
 
   override fun hashCode(): Int {
@@ -658,11 +820,70 @@ data class SummaryDto (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.totalEvents)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.withSignatureLast100)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.checkedLast100)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.mirrorRecords)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lastEventAt)
     return result
   }
   override fun toString(): String {
-    return "SummaryDto(blockedToday=$blockedToday, totalEvents=$totalEvents, withSignatureLast100=$withSignatureLast100, checkedLast100=$checkedLast100, lastEventAt=$lastEventAt)"
+    return "SummaryDto(blockedToday=$blockedToday, totalEvents=$totalEvents, withSignatureLast100=$withSignatureLast100, checkedLast100=$checkedLast100, mirrorRecords=$mirrorRecords, lastEventAt=$lastEventAt)"
+  }
+}
+
+/**
+ * Итог синхронизации зеркала системного журнала (ТЗ §7.2).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class SyncResultDto (
+  /** Есть ли доступ к системному журналу. Без него зеркало не наполняется вообще. */
+  val available: Boolean,
+  val fetched: Long,
+  val stitched: Long,
+  /**
+   * Названий, ставших известными уже после решения. Ключевой показатель §21 п. 4:
+   * если подпись досылается, правила по названию на таких звонках работать не могут.
+   */
+  val lateNames: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): SyncResultDto {
+      val available = pigeonVar_list[0] as Boolean
+      val fetched = pigeonVar_list[1] as Long
+      val stitched = pigeonVar_list[2] as Long
+      val lateNames = pigeonVar_list[3] as Long
+      return SyncResultDto(available, fetched, stitched, lateNames)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      available,
+      fetched,
+      stitched,
+      lateNames,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as SyncResultDto
+    return NopeCallApiPigeonUtils.deepEquals(this.available, other.available) && NopeCallApiPigeonUtils.deepEquals(this.fetched, other.fetched) && NopeCallApiPigeonUtils.deepEquals(this.stitched, other.stitched) && NopeCallApiPigeonUtils.deepEquals(this.lateNames, other.lateNames)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.available)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.fetched)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.stitched)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lateNames)
+    return result
+  }
+  override fun toString(): String {
+    return "SyncResultDto(available=$available, fetched=$fetched, stitched=$stitched, lateNames=$lateNames)"
   }
 }
 
@@ -670,20 +891,35 @@ data class SummaryDto (
 data class PreviewDto (
   val count: Long,
   /** Окно предпросмотра усечено: показывать надо «≥ N» (ТЗ §18 п. 16). */
-  val truncated: Boolean
+  val truncated: Boolean,
+  /** Книга контактов прочитана не до конца — [contactsCovered] это нижняя граница. */
+  val contactsTruncated: Boolean,
+  /** Сколько разрешающих правил новое правило перекрывает. `null` — не считали. */
+  val allowRulesCovered: Long? = null,
+  /**
+   * Сколько номеров из телефонной книги попадёт под правило. `null` — нет доступа
+   * к контактам: «ноль контактов» и «мы не смогли проверить» — разные утверждения.
+   */
+  val contactsCovered: Long? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): PreviewDto {
       val count = pigeonVar_list[0] as Long
       val truncated = pigeonVar_list[1] as Boolean
-      return PreviewDto(count, truncated)
+      val contactsTruncated = pigeonVar_list[2] as Boolean
+      val allowRulesCovered = pigeonVar_list[3] as Long?
+      val contactsCovered = pigeonVar_list[4] as Long?
+      return PreviewDto(count, truncated, contactsTruncated, allowRulesCovered, contactsCovered)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       count,
       truncated,
+      contactsTruncated,
+      allowRulesCovered,
+      contactsCovered,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -694,17 +930,885 @@ data class PreviewDto (
       return true
     }
     val other = other as PreviewDto
-    return NopeCallApiPigeonUtils.deepEquals(this.count, other.count) && NopeCallApiPigeonUtils.deepEquals(this.truncated, other.truncated)
+    return NopeCallApiPigeonUtils.deepEquals(this.count, other.count) && NopeCallApiPigeonUtils.deepEquals(this.truncated, other.truncated) && NopeCallApiPigeonUtils.deepEquals(this.contactsTruncated, other.contactsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.allowRulesCovered, other.allowRulesCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsCovered, other.contactsCovered)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.count)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.truncated)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsTruncated)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.allowRulesCovered)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsCovered)
     return result
   }
   override fun toString(): String {
-    return "PreviewDto(count=$count, truncated=$truncated)"
+    return "PreviewDto(count=$count, truncated=$truncated, contactsTruncated=$contactsTruncated, allowRulesCovered=$allowRulesCovered, contactsCovered=$contactsCovered)"
+  }
+}
+
+/**
+ * Отчёт об импорте правил (ТЗ §15.8): что добавлено, что пропущено, что отклонено и почему.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class ImportReportDto (
+  /** `false` — файл не разобран целиком: причина в [error], остальные поля пусты. */
+  val ok: Boolean,
+  val added: Long,
+  val updated: Long,
+  val duplicates: Long,
+  /** Названия удалённых правил, а не их число: «удалено 7» ничего не объясняет. */
+  val removed: List<String>,
+  /** Отклонённые записи: «строка 3 «Мой банк» — неверное регулярное выражение». */
+  val rejected: List<String>,
+  /** Снимок правил пересобран. `false` — правила в базе новые, а решения ещё старые. */
+  val snapshotRebuilt: Boolean,
+  val error: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): ImportReportDto {
+      val ok = pigeonVar_list[0] as Boolean
+      val added = pigeonVar_list[1] as Long
+      val updated = pigeonVar_list[2] as Long
+      val duplicates = pigeonVar_list[3] as Long
+      val removed = pigeonVar_list[4] as List<String>
+      val rejected = pigeonVar_list[5] as List<String>
+      val snapshotRebuilt = pigeonVar_list[6] as Boolean
+      val error = pigeonVar_list[7] as String?
+      return ImportReportDto(ok, added, updated, duplicates, removed, rejected, snapshotRebuilt, error)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      ok,
+      added,
+      updated,
+      duplicates,
+      removed,
+      rejected,
+      snapshotRebuilt,
+      error,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as ImportReportDto
+    return NopeCallApiPigeonUtils.deepEquals(this.ok, other.ok) && NopeCallApiPigeonUtils.deepEquals(this.added, other.added) && NopeCallApiPigeonUtils.deepEquals(this.updated, other.updated) && NopeCallApiPigeonUtils.deepEquals(this.duplicates, other.duplicates) && NopeCallApiPigeonUtils.deepEquals(this.removed, other.removed) && NopeCallApiPigeonUtils.deepEquals(this.rejected, other.rejected) && NopeCallApiPigeonUtils.deepEquals(this.snapshotRebuilt, other.snapshotRebuilt) && NopeCallApiPigeonUtils.deepEquals(this.error, other.error)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.ok)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.added)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.updated)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.duplicates)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.removed)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.rejected)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotRebuilt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.error)
+    return result
+  }
+  override fun toString(): String {
+    return "ImportReportDto(ok=$ok, added=$added, updated=$updated, duplicates=$duplicates, removed=$removed, rejected=$rejected, snapshotRebuilt=$snapshotRebuilt, error=$error)"
+  }
+}
+
+/**
+ * Состояние обновления (ТЗ §15.5). Ошибка приходит текстом и показывается только
+ * на своём экране: всплывающих окон при автопроверке быть не должно.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class UpdateStatusDto (
+  /** AVAILABLE — есть новее; UP_TO_DATE — установлена актуальная; FAILURE — не проверить. */
+  val state: String,
+  val currentVersion: String,
+  val version: String? = null,
+  val build: Long? = null,
+  val notesUrl: String? = null,
+  val error: String? = null,
+  val sizeBytes: Long? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): UpdateStatusDto {
+      val state = pigeonVar_list[0] as String
+      val currentVersion = pigeonVar_list[1] as String
+      val version = pigeonVar_list[2] as String?
+      val build = pigeonVar_list[3] as Long?
+      val notesUrl = pigeonVar_list[4] as String?
+      val error = pigeonVar_list[5] as String?
+      val sizeBytes = pigeonVar_list[6] as Long?
+      return UpdateStatusDto(state, currentVersion, version, build, notesUrl, error, sizeBytes)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      state,
+      currentVersion,
+      version,
+      build,
+      notesUrl,
+      error,
+      sizeBytes,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as UpdateStatusDto
+    return NopeCallApiPigeonUtils.deepEquals(this.state, other.state) && NopeCallApiPigeonUtils.deepEquals(this.currentVersion, other.currentVersion) && NopeCallApiPigeonUtils.deepEquals(this.version, other.version) && NopeCallApiPigeonUtils.deepEquals(this.build, other.build) && NopeCallApiPigeonUtils.deepEquals(this.notesUrl, other.notesUrl) && NopeCallApiPigeonUtils.deepEquals(this.error, other.error) && NopeCallApiPigeonUtils.deepEquals(this.sizeBytes, other.sizeBytes)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.state)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.currentVersion)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.version)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.build)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.notesUrl)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.error)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.sizeBytes)
+    return result
+  }
+  override fun toString(): String {
+    return "UpdateStatusDto(state=$state, currentVersion=$currentVersion, version=$version, build=$build, notesUrl=$notesUrl, error=$error, sizeBytes=$sizeBytes)"
+  }
+}
+
+/**
+ * Состояние режима наблюдения (ТЗ §7.7.2): настройки и занятый объём в одном месте.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class ObservationStatusDto (
+  val enabled: Boolean,
+  val techEnabled: Boolean,
+  val techVerbose: Boolean,
+  val callsRetentionDays: Long,
+  val callsMaxMb: Long,
+  val techRetentionDays: Long,
+  val techMaxMb: Long,
+  val maskByDefault: Boolean,
+  val callsBytes: Long,
+  val techBytes: Long,
+  /** Оценка прироста в сутки: без неё «100 МБ» ни о чём не говорит. */
+  val dailyBytesEstimate: Long,
+  val droppedTechLines: Long,
+  val installId: String,
+  /** С какого момента есть данные — «есть данные с 12 июня» (ТЗ §7.7.2). */
+  val oldestAt: Long? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): ObservationStatusDto {
+      val enabled = pigeonVar_list[0] as Boolean
+      val techEnabled = pigeonVar_list[1] as Boolean
+      val techVerbose = pigeonVar_list[2] as Boolean
+      val callsRetentionDays = pigeonVar_list[3] as Long
+      val callsMaxMb = pigeonVar_list[4] as Long
+      val techRetentionDays = pigeonVar_list[5] as Long
+      val techMaxMb = pigeonVar_list[6] as Long
+      val maskByDefault = pigeonVar_list[7] as Boolean
+      val callsBytes = pigeonVar_list[8] as Long
+      val techBytes = pigeonVar_list[9] as Long
+      val dailyBytesEstimate = pigeonVar_list[10] as Long
+      val droppedTechLines = pigeonVar_list[11] as Long
+      val installId = pigeonVar_list[12] as String
+      val oldestAt = pigeonVar_list[13] as Long?
+      return ObservationStatusDto(enabled, techEnabled, techVerbose, callsRetentionDays, callsMaxMb, techRetentionDays, techMaxMb, maskByDefault, callsBytes, techBytes, dailyBytesEstimate, droppedTechLines, installId, oldestAt)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      enabled,
+      techEnabled,
+      techVerbose,
+      callsRetentionDays,
+      callsMaxMb,
+      techRetentionDays,
+      techMaxMb,
+      maskByDefault,
+      callsBytes,
+      techBytes,
+      dailyBytesEstimate,
+      droppedTechLines,
+      installId,
+      oldestAt,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as ObservationStatusDto
+    return NopeCallApiPigeonUtils.deepEquals(this.enabled, other.enabled) && NopeCallApiPigeonUtils.deepEquals(this.techEnabled, other.techEnabled) && NopeCallApiPigeonUtils.deepEquals(this.techVerbose, other.techVerbose) && NopeCallApiPigeonUtils.deepEquals(this.callsRetentionDays, other.callsRetentionDays) && NopeCallApiPigeonUtils.deepEquals(this.callsMaxMb, other.callsMaxMb) && NopeCallApiPigeonUtils.deepEquals(this.techRetentionDays, other.techRetentionDays) && NopeCallApiPigeonUtils.deepEquals(this.techMaxMb, other.techMaxMb) && NopeCallApiPigeonUtils.deepEquals(this.maskByDefault, other.maskByDefault) && NopeCallApiPigeonUtils.deepEquals(this.callsBytes, other.callsBytes) && NopeCallApiPigeonUtils.deepEquals(this.techBytes, other.techBytes) && NopeCallApiPigeonUtils.deepEquals(this.dailyBytesEstimate, other.dailyBytesEstimate) && NopeCallApiPigeonUtils.deepEquals(this.droppedTechLines, other.droppedTechLines) && NopeCallApiPigeonUtils.deepEquals(this.installId, other.installId) && NopeCallApiPigeonUtils.deepEquals(this.oldestAt, other.oldestAt)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.enabled)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.techEnabled)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.techVerbose)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.callsRetentionDays)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.callsMaxMb)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.techRetentionDays)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.techMaxMb)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.maskByDefault)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.callsBytes)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.techBytes)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.dailyBytesEstimate)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.droppedTechLines)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.installId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.oldestAt)
+    return result
+  }
+  override fun toString(): String {
+    return "ObservationStatusDto(enabled=$enabled, techEnabled=$techEnabled, techVerbose=$techVerbose, callsRetentionDays=$callsRetentionDays, callsMaxMb=$callsMaxMb, techRetentionDays=$techRetentionDays, techMaxMb=$techMaxMb, maskByDefault=$maskByDefault, callsBytes=$callsBytes, techBytes=$techBytes, dailyBytesEstimate=$dailyBytesEstimate, droppedTechLines=$droppedTechLines, installId=$installId, oldestAt=$oldestAt)"
+  }
+}
+
+/**
+ * Разбивка «значение — сколько раз». Для сводки §7.7.5.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class BucketDto (
+  val label: String,
+  val total: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BucketDto {
+      val label = pigeonVar_list[0] as String
+      val total = pigeonVar_list[1] as Long
+      return BucketDto(label, total)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      label,
+      total,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as BucketDto
+    return NopeCallApiPigeonUtils.deepEquals(this.label, other.label) && NopeCallApiPigeonUtils.deepEquals(this.total, other.total)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.label)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.total)
+    return result
+  }
+  override fun toString(): String {
+    return "BucketDto(label=$label, total=$total)"
+  }
+}
+
+/**
+ * Наблюдённая операторская подпись: дословно и рядом свёрнутая форма (ТЗ §7.7.5).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class SignatureDto (
+  val raw: String,
+  val total: Long,
+  val lastAt: Long,
+  val fold: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): SignatureDto {
+      val raw = pigeonVar_list[0] as String
+      val total = pigeonVar_list[1] as Long
+      val lastAt = pigeonVar_list[2] as Long
+      val fold = pigeonVar_list[3] as String?
+      return SignatureDto(raw, total, lastAt, fold)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      raw,
+      total,
+      lastAt,
+      fold,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as SignatureDto
+    return NopeCallApiPigeonUtils.deepEquals(this.raw, other.raw) && NopeCallApiPigeonUtils.deepEquals(this.total, other.total) && NopeCallApiPigeonUtils.deepEquals(this.lastAt, other.lastAt) && NopeCallApiPigeonUtils.deepEquals(this.fold, other.fold)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.raw)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.total)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lastAt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.fold)
+    return result
+  }
+  override fun toString(): String {
+    return "SignatureDto(raw=$raw, total=$total, lastAt=$lastAt, fold=$fold)"
+  }
+}
+
+/**
+ * Сводка режима наблюдения (ТЗ §7.7.5).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class ObservationReportDto (
+  val periodDays: Long,
+  val checks: Long,
+  val withSignature: Long,
+  val withoutName: Long,
+  /** Сколько названий стало известно уже после решения — ключевой показатель §21 п. 4. */
+  val lateNames: Long,
+  val hiddenNumbers: Long,
+  val coldStarts: Long,
+  val watchdogFired: Long,
+  val latencyP50: Long,
+  val latencyP95: Long,
+  val latencyMax: Long,
+  val nameSources: List<BucketDto>,
+  val networkTypes: List<BucketDto>,
+  val volte: List<BucketDto>,
+  val extrasKeys: List<BucketDto>,
+  val signatures: List<SignatureDto>
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): ObservationReportDto {
+      val periodDays = pigeonVar_list[0] as Long
+      val checks = pigeonVar_list[1] as Long
+      val withSignature = pigeonVar_list[2] as Long
+      val withoutName = pigeonVar_list[3] as Long
+      val lateNames = pigeonVar_list[4] as Long
+      val hiddenNumbers = pigeonVar_list[5] as Long
+      val coldStarts = pigeonVar_list[6] as Long
+      val watchdogFired = pigeonVar_list[7] as Long
+      val latencyP50 = pigeonVar_list[8] as Long
+      val latencyP95 = pigeonVar_list[9] as Long
+      val latencyMax = pigeonVar_list[10] as Long
+      val nameSources = pigeonVar_list[11] as List<BucketDto>
+      val networkTypes = pigeonVar_list[12] as List<BucketDto>
+      val volte = pigeonVar_list[13] as List<BucketDto>
+      val extrasKeys = pigeonVar_list[14] as List<BucketDto>
+      val signatures = pigeonVar_list[15] as List<SignatureDto>
+      return ObservationReportDto(periodDays, checks, withSignature, withoutName, lateNames, hiddenNumbers, coldStarts, watchdogFired, latencyP50, latencyP95, latencyMax, nameSources, networkTypes, volte, extrasKeys, signatures)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      periodDays,
+      checks,
+      withSignature,
+      withoutName,
+      lateNames,
+      hiddenNumbers,
+      coldStarts,
+      watchdogFired,
+      latencyP50,
+      latencyP95,
+      latencyMax,
+      nameSources,
+      networkTypes,
+      volte,
+      extrasKeys,
+      signatures,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as ObservationReportDto
+    return NopeCallApiPigeonUtils.deepEquals(this.periodDays, other.periodDays) && NopeCallApiPigeonUtils.deepEquals(this.checks, other.checks) && NopeCallApiPigeonUtils.deepEquals(this.withSignature, other.withSignature) && NopeCallApiPigeonUtils.deepEquals(this.withoutName, other.withoutName) && NopeCallApiPigeonUtils.deepEquals(this.lateNames, other.lateNames) && NopeCallApiPigeonUtils.deepEquals(this.hiddenNumbers, other.hiddenNumbers) && NopeCallApiPigeonUtils.deepEquals(this.coldStarts, other.coldStarts) && NopeCallApiPigeonUtils.deepEquals(this.watchdogFired, other.watchdogFired) && NopeCallApiPigeonUtils.deepEquals(this.latencyP50, other.latencyP50) && NopeCallApiPigeonUtils.deepEquals(this.latencyP95, other.latencyP95) && NopeCallApiPigeonUtils.deepEquals(this.latencyMax, other.latencyMax) && NopeCallApiPigeonUtils.deepEquals(this.nameSources, other.nameSources) && NopeCallApiPigeonUtils.deepEquals(this.networkTypes, other.networkTypes) && NopeCallApiPigeonUtils.deepEquals(this.volte, other.volte) && NopeCallApiPigeonUtils.deepEquals(this.extrasKeys, other.extrasKeys) && NopeCallApiPigeonUtils.deepEquals(this.signatures, other.signatures)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.periodDays)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.checks)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.withSignature)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.withoutName)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lateNames)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hiddenNumbers)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.coldStarts)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.watchdogFired)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyP50)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyP95)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyMax)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameSources)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.networkTypes)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.volte)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.extrasKeys)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.signatures)
+    return result
+  }
+  override fun toString(): String {
+    return "ObservationReportDto(periodDays=$periodDays, checks=$checks, withSignature=$withSignature, withoutName=$withoutName, lateNames=$lateNames, hiddenNumbers=$hiddenNumbers, coldStarts=$coldStarts, watchdogFired=$watchdogFired, latencyP50=$latencyP50, latencyP95=$latencyP95, latencyMax=$latencyMax, nameSources=$nameSources, networkTypes=$networkTypes, volte=$volte, extrasKeys=$extrasKeys, signatures=$signatures)"
+  }
+}
+
+/**
+ * Что именно уйдёт в выгрузке (ТЗ §7.7.3 п. 2).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class ExportEstimateDto (
+  val callLines: Long,
+  val archiveBytes: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): ExportEstimateDto {
+      val callLines = pigeonVar_list[0] as Long
+      val archiveBytes = pigeonVar_list[1] as Long
+      return ExportEstimateDto(callLines, archiveBytes)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      callLines,
+      archiveBytes,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as ExportEstimateDto
+    return NopeCallApiPigeonUtils.deepEquals(this.callLines, other.callLines) && NopeCallApiPigeonUtils.deepEquals(this.archiveBytes, other.archiveBytes)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.callLines)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.archiveBytes)
+    return result
+  }
+  override fun toString(): String {
+    return "ExportEstimateDto(callLines=$callLines, archiveBytes=$archiveBytes)"
+  }
+}
+
+/**
+ * Отчёт диагностики (ТЗ §9.7). Экран обязательный: блокировка отказывает тихо, и без
+ * диагностики поддержка возможна только подключением к телефону пользователя.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class DiagnosticsDto (
+  val checksLast7Days: Long,
+  val latencyP50: Long,
+  val latencyP95: Long,
+  val latencyMax: Long,
+  val degradedCounts: List<BucketDto>,
+  val ruleErrors: List<RuleErrorDto>,
+  val lastEvents: List<EventLineDto>,
+  val nameSources: List<BucketDto>,
+  val withSignatureLast100: Long,
+  val checkedLast100: Long,
+  val volte: List<BucketDto>,
+  /**
+   * Подписи не встречались ни разу на достаточной выборке: правила по названию не сработают,
+   * и сказать это надо до того, как пользователь их построит.
+   */
+  val signatureLooksUnavailable: Boolean,
+  val device: String,
+  /** Готовый текст для кнопки «Скопировать отчёт». Номера в нём замаскированы. */
+  val reportText: String,
+  val snapshotFormatVersion: Long? = null,
+  val snapshotCanonVersion: Long? = null,
+  val snapshotRuleCount: Long? = null,
+  val snapshotBuiltAt: Long? = null,
+  val snapshotError: String? = null,
+  /** Исключено ли приложение из ограничений энергосбережения. `null` — определить не удалось. */
+  val batteryUnrestricted: Boolean? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): DiagnosticsDto {
+      val checksLast7Days = pigeonVar_list[0] as Long
+      val latencyP50 = pigeonVar_list[1] as Long
+      val latencyP95 = pigeonVar_list[2] as Long
+      val latencyMax = pigeonVar_list[3] as Long
+      val degradedCounts = pigeonVar_list[4] as List<BucketDto>
+      val ruleErrors = pigeonVar_list[5] as List<RuleErrorDto>
+      val lastEvents = pigeonVar_list[6] as List<EventLineDto>
+      val nameSources = pigeonVar_list[7] as List<BucketDto>
+      val withSignatureLast100 = pigeonVar_list[8] as Long
+      val checkedLast100 = pigeonVar_list[9] as Long
+      val volte = pigeonVar_list[10] as List<BucketDto>
+      val signatureLooksUnavailable = pigeonVar_list[11] as Boolean
+      val device = pigeonVar_list[12] as String
+      val reportText = pigeonVar_list[13] as String
+      val snapshotFormatVersion = pigeonVar_list[14] as Long?
+      val snapshotCanonVersion = pigeonVar_list[15] as Long?
+      val snapshotRuleCount = pigeonVar_list[16] as Long?
+      val snapshotBuiltAt = pigeonVar_list[17] as Long?
+      val snapshotError = pigeonVar_list[18] as String?
+      val batteryUnrestricted = pigeonVar_list[19] as Boolean?
+      return DiagnosticsDto(checksLast7Days, latencyP50, latencyP95, latencyMax, degradedCounts, ruleErrors, lastEvents, nameSources, withSignatureLast100, checkedLast100, volte, signatureLooksUnavailable, device, reportText, snapshotFormatVersion, snapshotCanonVersion, snapshotRuleCount, snapshotBuiltAt, snapshotError, batteryUnrestricted)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      checksLast7Days,
+      latencyP50,
+      latencyP95,
+      latencyMax,
+      degradedCounts,
+      ruleErrors,
+      lastEvents,
+      nameSources,
+      withSignatureLast100,
+      checkedLast100,
+      volte,
+      signatureLooksUnavailable,
+      device,
+      reportText,
+      snapshotFormatVersion,
+      snapshotCanonVersion,
+      snapshotRuleCount,
+      snapshotBuiltAt,
+      snapshotError,
+      batteryUnrestricted,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as DiagnosticsDto
+    return NopeCallApiPigeonUtils.deepEquals(this.checksLast7Days, other.checksLast7Days) && NopeCallApiPigeonUtils.deepEquals(this.latencyP50, other.latencyP50) && NopeCallApiPigeonUtils.deepEquals(this.latencyP95, other.latencyP95) && NopeCallApiPigeonUtils.deepEquals(this.latencyMax, other.latencyMax) && NopeCallApiPigeonUtils.deepEquals(this.degradedCounts, other.degradedCounts) && NopeCallApiPigeonUtils.deepEquals(this.ruleErrors, other.ruleErrors) && NopeCallApiPigeonUtils.deepEquals(this.lastEvents, other.lastEvents) && NopeCallApiPigeonUtils.deepEquals(this.nameSources, other.nameSources) && NopeCallApiPigeonUtils.deepEquals(this.withSignatureLast100, other.withSignatureLast100) && NopeCallApiPigeonUtils.deepEquals(this.checkedLast100, other.checkedLast100) && NopeCallApiPigeonUtils.deepEquals(this.volte, other.volte) && NopeCallApiPigeonUtils.deepEquals(this.signatureLooksUnavailable, other.signatureLooksUnavailable) && NopeCallApiPigeonUtils.deepEquals(this.device, other.device) && NopeCallApiPigeonUtils.deepEquals(this.reportText, other.reportText) && NopeCallApiPigeonUtils.deepEquals(this.snapshotFormatVersion, other.snapshotFormatVersion) && NopeCallApiPigeonUtils.deepEquals(this.snapshotCanonVersion, other.snapshotCanonVersion) && NopeCallApiPigeonUtils.deepEquals(this.snapshotRuleCount, other.snapshotRuleCount) && NopeCallApiPigeonUtils.deepEquals(this.snapshotBuiltAt, other.snapshotBuiltAt) && NopeCallApiPigeonUtils.deepEquals(this.snapshotError, other.snapshotError) && NopeCallApiPigeonUtils.deepEquals(this.batteryUnrestricted, other.batteryUnrestricted)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.checksLast7Days)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyP50)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyP95)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyMax)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.degradedCounts)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.ruleErrors)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lastEvents)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameSources)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.withSignatureLast100)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.checkedLast100)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.volte)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.signatureLooksUnavailable)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.device)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.reportText)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotFormatVersion)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotCanonVersion)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotRuleCount)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotBuiltAt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotError)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.batteryUnrestricted)
+    return result
+  }
+  override fun toString(): String {
+    return "DiagnosticsDto(checksLast7Days=$checksLast7Days, latencyP50=$latencyP50, latencyP95=$latencyP95, latencyMax=$latencyMax, degradedCounts=$degradedCounts, ruleErrors=$ruleErrors, lastEvents=$lastEvents, nameSources=$nameSources, withSignatureLast100=$withSignatureLast100, checkedLast100=$checkedLast100, volte=$volte, signatureLooksUnavailable=$signatureLooksUnavailable, device=$device, reportText=$reportText, snapshotFormatVersion=$snapshotFormatVersion, snapshotCanonVersion=$snapshotCanonVersion, snapshotRuleCount=$snapshotRuleCount, snapshotBuiltAt=$snapshotBuiltAt, snapshotError=$snapshotError, batteryUnrestricted=$batteryUnrestricted)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class RuleErrorDto (
+  val title: String,
+  val errorCount: Long,
+  val lastError: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): RuleErrorDto {
+      val title = pigeonVar_list[0] as String
+      val errorCount = pigeonVar_list[1] as Long
+      val lastError = pigeonVar_list[2] as String?
+      return RuleErrorDto(title, errorCount, lastError)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      title,
+      errorCount,
+      lastError,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as RuleErrorDto
+    return NopeCallApiPigeonUtils.deepEquals(this.title, other.title) && NopeCallApiPigeonUtils.deepEquals(this.errorCount, other.errorCount) && NopeCallApiPigeonUtils.deepEquals(this.lastError, other.lastError)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.title)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.errorCount)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lastError)
+    return result
+  }
+  override fun toString(): String {
+    return "RuleErrorDto(title=$title, errorCount=$errorCount, lastError=$lastError)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class EventLineDto (
+  val occurredAt: Long,
+  val number: String,
+  val action: String,
+  val reason: String,
+  val latencyMs: Long,
+  val coldStart: Boolean? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): EventLineDto {
+      val occurredAt = pigeonVar_list[0] as Long
+      val number = pigeonVar_list[1] as String
+      val action = pigeonVar_list[2] as String
+      val reason = pigeonVar_list[3] as String
+      val latencyMs = pigeonVar_list[4] as Long
+      val coldStart = pigeonVar_list[5] as Boolean?
+      return EventLineDto(occurredAt, number, action, reason, latencyMs, coldStart)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      occurredAt,
+      number,
+      action,
+      reason,
+      latencyMs,
+      coldStart,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as EventLineDto
+    return NopeCallApiPigeonUtils.deepEquals(this.occurredAt, other.occurredAt) && NopeCallApiPigeonUtils.deepEquals(this.number, other.number) && NopeCallApiPigeonUtils.deepEquals(this.action, other.action) && NopeCallApiPigeonUtils.deepEquals(this.reason, other.reason) && NopeCallApiPigeonUtils.deepEquals(this.latencyMs, other.latencyMs) && NopeCallApiPigeonUtils.deepEquals(this.coldStart, other.coldStart)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.occurredAt)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.number)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.action)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.reason)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyMs)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.coldStart)
+    return result
+  }
+  override fun toString(): String {
+    return "EventLineDto(occurredAt=$occurredAt, number=$number, action=$action, reason=$reason, latencyMs=$latencyMs, coldStart=$coldStart)"
+  }
+}
+
+/**
+ * Шаг тестового прогона: какое правило проверялось и что вышло (ТЗ §9.7).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class TraceStepDto (
+  val ruleId: Long,
+  val title: String,
+  val target: String,
+  val matchType: String,
+  val canonical: String,
+  val matched: Boolean,
+  val skippedReason: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): TraceStepDto {
+      val ruleId = pigeonVar_list[0] as Long
+      val title = pigeonVar_list[1] as String
+      val target = pigeonVar_list[2] as String
+      val matchType = pigeonVar_list[3] as String
+      val canonical = pigeonVar_list[4] as String
+      val matched = pigeonVar_list[5] as Boolean
+      val skippedReason = pigeonVar_list[6] as String?
+      return TraceStepDto(ruleId, title, target, matchType, canonical, matched, skippedReason)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      ruleId,
+      title,
+      target,
+      matchType,
+      canonical,
+      matched,
+      skippedReason,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as TraceStepDto
+    return NopeCallApiPigeonUtils.deepEquals(this.ruleId, other.ruleId) && NopeCallApiPigeonUtils.deepEquals(this.title, other.title) && NopeCallApiPigeonUtils.deepEquals(this.target, other.target) && NopeCallApiPigeonUtils.deepEquals(this.matchType, other.matchType) && NopeCallApiPigeonUtils.deepEquals(this.canonical, other.canonical) && NopeCallApiPigeonUtils.deepEquals(this.matched, other.matched) && NopeCallApiPigeonUtils.deepEquals(this.skippedReason, other.skippedReason)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.ruleId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.title)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.target)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matchType)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.canonical)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matched)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.skippedReason)
+    return result
+  }
+  override fun toString(): String {
+    return "TraceStepDto(ruleId=$ruleId, title=$title, target=$target, matchType=$matchType, canonical=$canonical, matched=$matched, skippedReason=$skippedReason)"
+  }
+}
+
+/**
+ * Результат тестового прогона: способ проверить решение без второго телефона (ТЗ §9.7).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class TestRunDto (
+  val digits: String,
+  val candidates: List<String>,
+  val nameNorm: String,
+  val nameFold: String,
+  val orgFold: String,
+  val action: String,
+  val reason: String,
+  val elapsedMicros: Long,
+  val steps: List<TraceStepDto>,
+  /** Снимка правил нет: решение было бы «пропустить», и это надо показать прямо. */
+  val snapshotMissing: Boolean,
+  val e164: String? = null,
+  val categoryFold: String? = null,
+  val matchedRuleId: Long? = null,
+  val matchedRuleTitle: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): TestRunDto {
+      val digits = pigeonVar_list[0] as String
+      val candidates = pigeonVar_list[1] as List<String>
+      val nameNorm = pigeonVar_list[2] as String
+      val nameFold = pigeonVar_list[3] as String
+      val orgFold = pigeonVar_list[4] as String
+      val action = pigeonVar_list[5] as String
+      val reason = pigeonVar_list[6] as String
+      val elapsedMicros = pigeonVar_list[7] as Long
+      val steps = pigeonVar_list[8] as List<TraceStepDto>
+      val snapshotMissing = pigeonVar_list[9] as Boolean
+      val e164 = pigeonVar_list[10] as String?
+      val categoryFold = pigeonVar_list[11] as String?
+      val matchedRuleId = pigeonVar_list[12] as Long?
+      val matchedRuleTitle = pigeonVar_list[13] as String?
+      return TestRunDto(digits, candidates, nameNorm, nameFold, orgFold, action, reason, elapsedMicros, steps, snapshotMissing, e164, categoryFold, matchedRuleId, matchedRuleTitle)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      digits,
+      candidates,
+      nameNorm,
+      nameFold,
+      orgFold,
+      action,
+      reason,
+      elapsedMicros,
+      steps,
+      snapshotMissing,
+      e164,
+      categoryFold,
+      matchedRuleId,
+      matchedRuleTitle,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as TestRunDto
+    return NopeCallApiPigeonUtils.deepEquals(this.digits, other.digits) && NopeCallApiPigeonUtils.deepEquals(this.candidates, other.candidates) && NopeCallApiPigeonUtils.deepEquals(this.nameNorm, other.nameNorm) && NopeCallApiPigeonUtils.deepEquals(this.nameFold, other.nameFold) && NopeCallApiPigeonUtils.deepEquals(this.orgFold, other.orgFold) && NopeCallApiPigeonUtils.deepEquals(this.action, other.action) && NopeCallApiPigeonUtils.deepEquals(this.reason, other.reason) && NopeCallApiPigeonUtils.deepEquals(this.elapsedMicros, other.elapsedMicros) && NopeCallApiPigeonUtils.deepEquals(this.steps, other.steps) && NopeCallApiPigeonUtils.deepEquals(this.snapshotMissing, other.snapshotMissing) && NopeCallApiPigeonUtils.deepEquals(this.e164, other.e164) && NopeCallApiPigeonUtils.deepEquals(this.categoryFold, other.categoryFold) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleId, other.matchedRuleId) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleTitle, other.matchedRuleTitle)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.digits)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.candidates)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameNorm)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameFold)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.orgFold)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.action)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.reason)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.elapsedMicros)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.steps)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.snapshotMissing)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.e164)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.categoryFold)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matchedRuleId)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matchedRuleTitle)
+    return result
+  }
+  override fun toString(): String {
+    return "TestRunDto(digits=$digits, candidates=$candidates, nameNorm=$nameNorm, nameFold=$nameFold, orgFold=$orgFold, action=$action, reason=$reason, elapsedMicros=$elapsedMicros, steps=$steps, snapshotMissing=$snapshotMissing, e164=$e164, categoryFold=$categoryFold, matchedRuleId=$matchedRuleId, matchedRuleTitle=$matchedRuleTitle)"
   }
 }
 private open class NopeCallApiPigeonCodec : StandardMessageCodec() {
@@ -737,17 +1841,92 @@ private open class NopeCallApiPigeonCodec : StandardMessageCodec() {
       }
       134.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          JournalPageDto.fromList(it)
+          JournalCursorDto.fromList(it)
         }
       }
       135.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          SummaryDto.fromList(it)
+          JournalFilterDto.fromList(it)
         }
       }
       136.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
+          JournalPageDto.fromList(it)
+        }
+      }
+      137.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          SummaryDto.fromList(it)
+        }
+      }
+      138.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          SyncResultDto.fromList(it)
+        }
+      }
+      139.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
           PreviewDto.fromList(it)
+        }
+      }
+      140.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ImportReportDto.fromList(it)
+        }
+      }
+      141.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          UpdateStatusDto.fromList(it)
+        }
+      }
+      142.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ObservationStatusDto.fromList(it)
+        }
+      }
+      143.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          BucketDto.fromList(it)
+        }
+      }
+      144.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          SignatureDto.fromList(it)
+        }
+      }
+      145.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ObservationReportDto.fromList(it)
+        }
+      }
+      146.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ExportEstimateDto.fromList(it)
+        }
+      }
+      147.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          DiagnosticsDto.fromList(it)
+        }
+      }
+      148.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          RuleErrorDto.fromList(it)
+        }
+      }
+      149.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          EventLineDto.fromList(it)
+        }
+      }
+      150.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          TraceStepDto.fromList(it)
+        }
+      }
+      151.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          TestRunDto.fromList(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -775,16 +1954,76 @@ private open class NopeCallApiPigeonCodec : StandardMessageCodec() {
         stream.write(133)
         writeValue(stream, value.toList())
       }
-      is JournalPageDto -> {
+      is JournalCursorDto -> {
         stream.write(134)
         writeValue(stream, value.toList())
       }
-      is SummaryDto -> {
+      is JournalFilterDto -> {
         stream.write(135)
         writeValue(stream, value.toList())
       }
-      is PreviewDto -> {
+      is JournalPageDto -> {
         stream.write(136)
+        writeValue(stream, value.toList())
+      }
+      is SummaryDto -> {
+        stream.write(137)
+        writeValue(stream, value.toList())
+      }
+      is SyncResultDto -> {
+        stream.write(138)
+        writeValue(stream, value.toList())
+      }
+      is PreviewDto -> {
+        stream.write(139)
+        writeValue(stream, value.toList())
+      }
+      is ImportReportDto -> {
+        stream.write(140)
+        writeValue(stream, value.toList())
+      }
+      is UpdateStatusDto -> {
+        stream.write(141)
+        writeValue(stream, value.toList())
+      }
+      is ObservationStatusDto -> {
+        stream.write(142)
+        writeValue(stream, value.toList())
+      }
+      is BucketDto -> {
+        stream.write(143)
+        writeValue(stream, value.toList())
+      }
+      is SignatureDto -> {
+        stream.write(144)
+        writeValue(stream, value.toList())
+      }
+      is ObservationReportDto -> {
+        stream.write(145)
+        writeValue(stream, value.toList())
+      }
+      is ExportEstimateDto -> {
+        stream.write(146)
+        writeValue(stream, value.toList())
+      }
+      is DiagnosticsDto -> {
+        stream.write(147)
+        writeValue(stream, value.toList())
+      }
+      is RuleErrorDto -> {
+        stream.write(148)
+        writeValue(stream, value.toList())
+      }
+      is EventLineDto -> {
+        stream.write(149)
+        writeValue(stream, value.toList())
+      }
+      is TraceStepDto -> {
+        stream.write(150)
+        writeValue(stream, value.toList())
+      }
+      is TestRunDto -> {
+        stream.write(151)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -798,6 +2037,13 @@ interface StatusApi {
   fun status(): SetupStatus
   /** Открывает системный диалог запроса роли. Возвращает false, если роль недоступна. */
   fun requestRole(callback: (Result<Boolean>) -> Unit)
+  /**
+   * Запрашивает разрешения на журнал звонков, контакты и уведомления.
+   *
+   * Все три необязательны: без них блокировка по номеру работает, а зеркало журнала,
+   * правило «есть в контактах» и уведомления — нет. Отказ не ломает приложение.
+   */
+  fun requestPermissions(callback: (Result<Boolean>) -> Unit)
   fun openAppSettings()
 
   companion object {
@@ -843,6 +2089,24 @@ interface StatusApi {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.StatusApi.requestPermissions$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.requestPermissions{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.StatusApi.openAppSettings$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
@@ -871,6 +2135,16 @@ interface RulesApi {
   fun reorder(idsInOrder: List<Long>, callback: (Result<Unit>) -> Unit)
   fun checkPattern(targetType: String, matchType: String, pattern: String): PatternCheckResult
   fun preview(targetType: String, matchType: String, pattern: String, callback: (Result<PreviewDto>) -> Unit)
+  /**
+   * Собирает JSON со всеми правилами и отдаёт его через системный выбор приложения
+   * (ТЗ §15.8). Возвращает false, если делиться нечем.
+   */
+  fun exportRules(callback: (Result<Boolean>) -> Unit)
+  /**
+   * Открывает выбор файла и импортирует правила. Ответ приходит после выбора:
+   * пользователь может и отменить — тогда `ok = false` с причиной «отменено».
+   */
+  fun importRules(replaceAll: Boolean, callback: (Result<ImportReportDto>) -> Unit)
 
   companion object {
     /** The codec used by RulesApi. */
@@ -1027,13 +2301,67 @@ interface RulesApi {
           channel.setMessageHandler(null)
         }
       }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.RulesApi.exportRules$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.exportRules{ result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.RulesApi.importRules$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val replaceAllArg = args[0] as Boolean
+            api.importRules(replaceAllArg) { result: Result<ImportReportDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
     }
   }
 }
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface JournalApi {
-  fun page(beforeTime: Long?, beforeId: Long?, limit: Long, callback: (Result<JournalPageDto>) -> Unit)
+  fun page(filter: JournalFilterDto, cursor: JournalCursorDto?, limit: Long, callback: (Result<JournalPageDto>) -> Unit)
   fun summary(callback: (Result<SummaryDto>) -> Unit)
+  /** Какие SIM встречались в журнале. Пусто — фильтр по SIM показывать незачем. */
+  fun sims(callback: (Result<List<String>>) -> Unit)
+  /** Скрыть запись локально. Системный журнал Android при этом не трогается (ТЗ §7.2). */
+  fun hide(systemId: Long, callback: (Result<Unit>) -> Unit)
+  /** Очистить журнал приложения. Системный журнал Android не затрагивается (ТЗ §7.6). */
+  fun clear(callback: (Result<Long>) -> Unit)
+  /**
+   * Синхронизировать зеркало системного журнала. Вызывается по жесту обновления:
+   * разрешение могли выдать только что, и ждать перезапуска приложения незачем.
+   */
+  fun syncCallLog(callback: (Result<SyncResultDto>) -> Unit)
+  /**
+   * Выгрузка журнала в CSV за период и передача файла наружу (ТЗ §7.6).
+   * Возвращает число выгруженных строк; 0 — выгружать было нечего.
+   */
+  fun exportCsv(fromAt: Long?, toAt: Long?, callback: (Result<Long>) -> Unit)
 
   companion object {
     /** The codec used by JournalApi. */
@@ -1049,10 +2377,10 @@ interface JournalApi {
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val beforeTimeArg = args[0] as Long?
-            val beforeIdArg = args[1] as Long?
+            val filterArg = args[0] as JournalFilterDto
+            val cursorArg = args[1] as JournalCursorDto?
             val limitArg = args[2] as Long
-            api.page(beforeTimeArg, beforeIdArg, limitArg) { result: Result<JournalPageDto> ->
+            api.page(filterArg, cursorArg, limitArg) { result: Result<JournalPageDto> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(NopeCallApiPigeonUtils.wrapError(error))
@@ -1079,6 +2407,420 @@ interface JournalApi {
                 reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
               }
             }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.JournalApi.sims$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.sims{ result: Result<List<String>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.JournalApi.hide$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val systemIdArg = args[0] as Long
+            api.hide(systemIdArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.JournalApi.clear$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.clear{ result: Result<Long> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.JournalApi.syncCallLog$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.syncCallLog{ result: Result<SyncResultDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.JournalApi.exportCsv$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val fromAtArg = args[0] as Long?
+            val toAtArg = args[1] as Long?
+            api.exportCsv(fromAtArg, toAtArg) { result: Result<Long> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
+/** Generated interface from Pigeon that represents a handler of messages from Flutter. */
+interface UpdaterApi {
+  /**
+   * Проверка обновления (ТЗ §15.5). `silent = true` — автопроверка при запуске:
+   * её ошибки никуда не показываются, а только оседают в состоянии.
+   */
+  fun check(allowPrerelease: Boolean, silent: Boolean, callback: (Result<UpdateStatusDto>) -> Unit)
+  /**
+   * Скачивает APK, сверяет sha256 и отпечаток сертификата, отдаёт системному установщику.
+   * Возвращает текст причины отказа либо null, если диалог установки запущен.
+   */
+  fun install(allowPrerelease: Boolean, callback: (Result<String?>) -> Unit)
+  /** Открывает страницу релиза — путь установки вручную, если установщик отказал. */
+  fun openReleasePage(url: String)
+
+  companion object {
+    /** The codec used by UpdaterApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      NopeCallApiPigeonCodec()
+    }
+    /** Sets up an instance of `UpdaterApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: UpdaterApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.UpdaterApi.check$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val allowPrereleaseArg = args[0] as Boolean
+            val silentArg = args[1] as Boolean
+            api.check(allowPrereleaseArg, silentArg) { result: Result<UpdateStatusDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.UpdaterApi.install$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val allowPrereleaseArg = args[0] as Boolean
+            api.install(allowPrereleaseArg) { result: Result<String?> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.UpdaterApi.openReleasePage$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val urlArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              api.openReleasePage(urlArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              NopeCallApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
+/** Generated interface from Pigeon that represents a handler of messages from Flutter. */
+interface ObservationApi {
+  fun status(callback: (Result<ObservationStatusDto>) -> Unit)
+  fun report(periodDays: Long, callback: (Result<ObservationReportDto>) -> Unit)
+  /**
+   * Настройки режима. Все параметры регулируются, чтобы разбирать новое поведение
+   * без выпуска новой сборки (ТЗ §7.7.2).
+   */
+  fun setConfig(enabled: Boolean, techEnabled: Boolean, techVerbose: Boolean, callsRetentionDays: Long, callsMaxMb: Long, techRetentionDays: Long, techMaxMb: Long, maskByDefault: Boolean, callback: (Result<Unit>) -> Unit)
+  fun estimate(fromAt: Long, toAt: Long, callback: (Result<ExportEstimateDto>) -> Unit)
+  /**
+   * Собирает архив и открывает системный выбор приложения. Приложение никуда ничего
+   * не отправляет само: сеть доступна только апдейтеру (ТЗ §7.7.3 п. 4).
+   */
+  fun share(fromAt: Long, toAt: Long, mask: Boolean, periodLabel: String, callback: (Result<Boolean>) -> Unit)
+  /** Удаляет накопленное. Выключение режима данные не удаляет (ТЗ §7.7.2). */
+  fun deleteLogs(callback: (Result<Long>) -> Unit)
+
+  companion object {
+    /** The codec used by ObservationApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      NopeCallApiPigeonCodec()
+    }
+    /** Sets up an instance of `ObservationApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: ObservationApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.ObservationApi.status$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.status{ result: Result<ObservationStatusDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.ObservationApi.report$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val periodDaysArg = args[0] as Long
+            api.report(periodDaysArg) { result: Result<ObservationReportDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.ObservationApi.setConfig$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val enabledArg = args[0] as Boolean
+            val techEnabledArg = args[1] as Boolean
+            val techVerboseArg = args[2] as Boolean
+            val callsRetentionDaysArg = args[3] as Long
+            val callsMaxMbArg = args[4] as Long
+            val techRetentionDaysArg = args[5] as Long
+            val techMaxMbArg = args[6] as Long
+            val maskByDefaultArg = args[7] as Boolean
+            api.setConfig(enabledArg, techEnabledArg, techVerboseArg, callsRetentionDaysArg, callsMaxMbArg, techRetentionDaysArg, techMaxMbArg, maskByDefaultArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.ObservationApi.estimate$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val fromAtArg = args[0] as Long
+            val toAtArg = args[1] as Long
+            api.estimate(fromAtArg, toAtArg) { result: Result<ExportEstimateDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.ObservationApi.share$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val fromAtArg = args[0] as Long
+            val toAtArg = args[1] as Long
+            val maskArg = args[2] as Boolean
+            val periodLabelArg = args[3] as String
+            api.share(fromAtArg, toAtArg, maskArg, periodLabelArg) { result: Result<Boolean> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.ObservationApi.deleteLogs$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.deleteLogs{ result: Result<Long> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
+/** Generated interface from Pigeon that represents a handler of messages from Flutter. */
+interface DiagnosticsApi {
+  fun report(callback: (Result<DiagnosticsDto>) -> Unit)
+  /**
+   * Прогон идёт через настоящий снимок и настоящий движок: вторая реализация сопоставления
+   * «для диагностики» тут же начала бы расходиться с первой.
+   */
+  fun testRun(number: String, name: String?, callback: (Result<TestRunDto>) -> Unit)
+  /** Открывает системный экран ограничений энергосбережения. */
+  fun openBatterySettings()
+
+  companion object {
+    /** The codec used by DiagnosticsApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      NopeCallApiPigeonCodec()
+    }
+    /** Sets up an instance of `DiagnosticsApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: DiagnosticsApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.DiagnosticsApi.report$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.report{ result: Result<DiagnosticsDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.DiagnosticsApi.testRun$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val numberArg = args[0] as String
+            val nameArg = args[1] as String?
+            api.testRun(numberArg, nameArg) { result: Result<TestRunDto> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NopeCallApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NopeCallApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.DiagnosticsApi.openBatterySettings$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.openBatterySettings()
+              listOf(null)
+            } catch (exception: Throwable) {
+              NopeCallApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

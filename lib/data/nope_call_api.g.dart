@@ -109,6 +109,7 @@ class SetupStatus {
     required this.blockingActive,
     required this.enabledRuleCount,
     required this.problems,
+    required this.defaultAction,
     this.lastScreeningAt,
   });
 
@@ -130,6 +131,11 @@ class SetupStatus {
   /// NO_NOTIFICATIONS. Строками, а не перечислением, чтобы добавление кода не ломало мост.
   List<String> problems;
 
+  /// Что произойдёт, если ни одно правило не совпало: ALLOW / REJECT / DROP / SILENCE.
+  /// Часть состояния, а не только настройка: от него зависит, что приложение обещает
+  /// на главном экране, и обещание обязано совпадать с поведением.
+  String defaultAction;
+
   int? lastScreeningAt;
 
   List<Object?> _toList() {
@@ -142,6 +148,7 @@ class SetupStatus {
       blockingActive,
       enabledRuleCount,
       problems,
+      defaultAction,
       lastScreeningAt,
     ];
   }
@@ -161,7 +168,8 @@ class SetupStatus {
       blockingActive: result[5]! as bool,
       enabledRuleCount: result[6]! as int,
       problems: (result[7]! as List<Object?>).cast<String>(),
-      lastScreeningAt: result[8] as int?,
+      defaultAction: result[8]! as String,
+      lastScreeningAt: result[9] as int?,
     );
   }
 
@@ -182,6 +190,7 @@ class SetupStatus {
         _deepEquals(blockingActive, other.blockingActive) &&
         _deepEquals(enabledRuleCount, other.enabledRuleCount) &&
         _deepEquals(problems, other.problems) &&
+        _deepEquals(defaultAction, other.defaultAction) &&
         _deepEquals(lastScreeningAt, other.lastScreeningAt);
   }
 
@@ -191,7 +200,7 @@ class SetupStatus {
 
   @override
   String toString() {
-    return 'SetupStatus(hasRole: $hasRole, hasCallLog: $hasCallLog, hasContacts: $hasContacts, hasNotifications: $hasNotifications, blockingEnabled: $blockingEnabled, blockingActive: $blockingActive, enabledRuleCount: $enabledRuleCount, problems: $problems, lastScreeningAt: $lastScreeningAt)';
+    return 'SetupStatus(hasRole: $hasRole, hasCallLog: $hasCallLog, hasContacts: $hasContacts, hasNotifications: $hasNotifications, blockingEnabled: $blockingEnabled, blockingActive: $blockingActive, enabledRuleCount: $enabledRuleCount, problems: $problems, defaultAction: $defaultAction, lastScreeningAt: $lastScreeningAt)';
   }
 }
 
@@ -455,37 +464,55 @@ class SaveRuleResult {
 class JournalItemDto {
   JournalItemDto({
     required this.id,
+    required this.sourceRank,
     required this.occurredAt,
+    required this.kind,
     required this.rawNumber,
     required this.nameSource,
-    required this.action,
-    required this.reason,
-    required this.latencyMs,
     required this.blockedByUs,
     required this.hadSignature,
+    this.action,
+    this.reason,
+    this.latencyMs,
+    this.durationSeconds,
     this.e164,
     this.nameRaw,
     this.matchedRuleId,
     this.matchedRuleTitle,
+    this.eventId,
+    this.systemId,
+    this.phoneAccountId,
   });
 
   int id;
 
+  /// `0` — запись системного журнала, `1` — только наша проверка. Вместе с `id` уникально:
+  /// идентификаторы двух таблиц легко совпадают численно.
+  int sourceRank;
+
   int occurredAt;
+
+  /// Тип записи для интерфейса (ТЗ §7.4): BLOCKED_BY_APP, BLOCKED_EXTERNAL, SILENCED,
+  /// INCOMING_ANSWERED, MISSED, REJECTED_BY_USER, OUTGOING, VOICEMAIL, CHECKED_ALLOWED, UNKNOWN.
+  String kind;
 
   String rawNumber;
 
   String nameSource;
 
-  String action;
-
-  String reason;
-
-  int latencyMs;
-
   bool blockedByUs;
 
   bool hadSignature;
+
+  /// `null` — звонок проверяли не мы: запись пришла из системного журнала.
+  String? action;
+
+  String? reason;
+
+  int? latencyMs;
+
+  /// `null` — исход неизвестен, а не «ноль секунд» (ТЗ §7.2).
+  int? durationSeconds;
 
   String? e164;
 
@@ -495,21 +522,33 @@ class JournalItemDto {
 
   String? matchedRuleTitle;
 
+  int? eventId;
+
+  int? systemId;
+
+  String? phoneAccountId;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
+      sourceRank,
       occurredAt,
+      kind,
       rawNumber,
       nameSource,
+      blockedByUs,
+      hadSignature,
       action,
       reason,
       latencyMs,
-      blockedByUs,
-      hadSignature,
+      durationSeconds,
       e164,
       nameRaw,
       matchedRuleId,
       matchedRuleTitle,
+      eventId,
+      systemId,
+      phoneAccountId,
     ];
   }
 
@@ -521,18 +560,24 @@ class JournalItemDto {
     result as List<Object?>;
     return JournalItemDto(
       id: result[0]! as int,
-      occurredAt: result[1]! as int,
-      rawNumber: result[2]! as String,
-      nameSource: result[3]! as String,
-      action: result[4]! as String,
-      reason: result[5]! as String,
-      latencyMs: result[6]! as int,
-      blockedByUs: result[7]! as bool,
-      hadSignature: result[8]! as bool,
-      e164: result[9] as String?,
-      nameRaw: result[10] as String?,
-      matchedRuleId: result[11] as int?,
-      matchedRuleTitle: result[12] as String?,
+      sourceRank: result[1]! as int,
+      occurredAt: result[2]! as int,
+      kind: result[3]! as String,
+      rawNumber: result[4]! as String,
+      nameSource: result[5]! as String,
+      blockedByUs: result[6]! as bool,
+      hadSignature: result[7]! as bool,
+      action: result[8] as String?,
+      reason: result[9] as String?,
+      latencyMs: result[10] as int?,
+      durationSeconds: result[11] as int?,
+      e164: result[12] as String?,
+      nameRaw: result[13] as String?,
+      matchedRuleId: result[14] as int?,
+      matchedRuleTitle: result[15] as String?,
+      eventId: result[16] as int?,
+      systemId: result[17] as int?,
+      phoneAccountId: result[18] as String?,
     );
   }
 
@@ -546,18 +591,24 @@ class JournalItemDto {
       return true;
     }
     return _deepEquals(id, other.id) &&
+        _deepEquals(sourceRank, other.sourceRank) &&
         _deepEquals(occurredAt, other.occurredAt) &&
+        _deepEquals(kind, other.kind) &&
         _deepEquals(rawNumber, other.rawNumber) &&
         _deepEquals(nameSource, other.nameSource) &&
+        _deepEquals(blockedByUs, other.blockedByUs) &&
+        _deepEquals(hadSignature, other.hadSignature) &&
         _deepEquals(action, other.action) &&
         _deepEquals(reason, other.reason) &&
         _deepEquals(latencyMs, other.latencyMs) &&
-        _deepEquals(blockedByUs, other.blockedByUs) &&
-        _deepEquals(hadSignature, other.hadSignature) &&
+        _deepEquals(durationSeconds, other.durationSeconds) &&
         _deepEquals(e164, other.e164) &&
         _deepEquals(nameRaw, other.nameRaw) &&
         _deepEquals(matchedRuleId, other.matchedRuleId) &&
-        _deepEquals(matchedRuleTitle, other.matchedRuleTitle);
+        _deepEquals(matchedRuleTitle, other.matchedRuleTitle) &&
+        _deepEquals(eventId, other.eventId) &&
+        _deepEquals(systemId, other.systemId) &&
+        _deepEquals(phoneAccountId, other.phoneAccountId);
   }
 
   @override
@@ -566,30 +617,167 @@ class JournalItemDto {
 
   @override
   String toString() {
-    return 'JournalItemDto(id: $id, occurredAt: $occurredAt, rawNumber: $rawNumber, nameSource: $nameSource, action: $action, reason: $reason, latencyMs: $latencyMs, blockedByUs: $blockedByUs, hadSignature: $hadSignature, e164: $e164, nameRaw: $nameRaw, matchedRuleId: $matchedRuleId, matchedRuleTitle: $matchedRuleTitle)';
+    return 'JournalItemDto(id: $id, sourceRank: $sourceRank, occurredAt: $occurredAt, kind: $kind, rawNumber: $rawNumber, nameSource: $nameSource, blockedByUs: $blockedByUs, hadSignature: $hadSignature, action: $action, reason: $reason, latencyMs: $latencyMs, durationSeconds: $durationSeconds, e164: $e164, nameRaw: $nameRaw, matchedRuleId: $matchedRuleId, matchedRuleTitle: $matchedRuleTitle, eventId: $eventId, systemId: $systemId, phoneAccountId: $phoneAccountId)';
+  }
+}
+
+/// Курсор страницы журнала. Тройной: метки времени совпадают у соседних записей при пакетной
+/// вставке зеркала, а `id` уникален только внутри своей таблицы (архитектура §7.3).
+class JournalCursorDto {
+  JournalCursorDto({
+    required this.at,
+    required this.sourceRank,
+    required this.id,
+  });
+
+  int at;
+
+  int sourceRank;
+
+  int id;
+
+  List<Object?> _toList() {
+    return <Object?>[at, sourceRank, id];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static JournalCursorDto decode(Object result) {
+    result as List<Object?>;
+    return JournalCursorDto(
+      at: result[0]! as int,
+      sourceRank: result[1]! as int,
+      id: result[2]! as int,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! JournalCursorDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(at, other.at) &&
+        _deepEquals(sourceRank, other.sourceRank) &&
+        _deepEquals(id, other.id);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'JournalCursorDto(at: $at, sourceRank: $sourceRank, id: $id)';
+  }
+}
+
+/// Фильтры журнала (ТЗ §7.5). Складываются по «И»; `null` — «не фильтровать».
+class JournalFilterDto {
+  JournalFilterDto({
+    required this.kind,
+    this.digitsQuery,
+    this.nameQuery,
+    this.hadSignature,
+    this.fromAt,
+    this.toAt,
+    this.ruleId,
+    this.sim,
+  });
+
+  /// ALL, BLOCKED_BY_US, BLOCKED_ANY, INCOMING, OUTGOING, MISSED, SILENCED.
+  String kind;
+
+  String? digitsQuery;
+
+  String? nameQuery;
+
+  bool? hadSignature;
+
+  int? fromAt;
+
+  int? toAt;
+
+  int? ruleId;
+
+  String? sim;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      kind,
+      digitsQuery,
+      nameQuery,
+      hadSignature,
+      fromAt,
+      toAt,
+      ruleId,
+      sim,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static JournalFilterDto decode(Object result) {
+    result as List<Object?>;
+    return JournalFilterDto(
+      kind: result[0]! as String,
+      digitsQuery: result[1] as String?,
+      nameQuery: result[2] as String?,
+      hadSignature: result[3] as bool?,
+      fromAt: result[4] as int?,
+      toAt: result[5] as int?,
+      ruleId: result[6] as int?,
+      sim: result[7] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! JournalFilterDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(kind, other.kind) &&
+        _deepEquals(digitsQuery, other.digitsQuery) &&
+        _deepEquals(nameQuery, other.nameQuery) &&
+        _deepEquals(hadSignature, other.hadSignature) &&
+        _deepEquals(fromAt, other.fromAt) &&
+        _deepEquals(toAt, other.toAt) &&
+        _deepEquals(ruleId, other.ruleId) &&
+        _deepEquals(sim, other.sim);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'JournalFilterDto(kind: $kind, digitsQuery: $digitsQuery, nameQuery: $nameQuery, hadSignature: $hadSignature, fromAt: $fromAt, toAt: $toAt, ruleId: $ruleId, sim: $sim)';
   }
 }
 
 class JournalPageDto {
-  JournalPageDto({
-    required this.items,
-    required this.hasMore,
-    this.nextBeforeTime,
-    this.nextBeforeId,
-  });
+  JournalPageDto({required this.items, required this.hasMore, this.next});
 
   List<JournalItemDto> items;
 
   bool hasMore;
 
-  /// Курсор составной: метки времени в миллисекундах совпадают у соседних записей при
-  /// пакетной вставке, и курсор по одному полю пропускал бы строки (архитектура §7.3).
-  int? nextBeforeTime;
-
-  int? nextBeforeId;
+  JournalCursorDto? next;
 
   List<Object?> _toList() {
-    return <Object?>[items, hasMore, nextBeforeTime, nextBeforeId];
+    return <Object?>[items, hasMore, next];
   }
 
   Object encode() {
@@ -601,8 +789,7 @@ class JournalPageDto {
     return JournalPageDto(
       items: (result[0]! as List<Object?>).cast<JournalItemDto>(),
       hasMore: result[1]! as bool,
-      nextBeforeTime: result[2] as int?,
-      nextBeforeId: result[3] as int?,
+      next: result[2] as JournalCursorDto?,
     );
   }
 
@@ -617,8 +804,7 @@ class JournalPageDto {
     }
     return _deepEquals(items, other.items) &&
         _deepEquals(hasMore, other.hasMore) &&
-        _deepEquals(nextBeforeTime, other.nextBeforeTime) &&
-        _deepEquals(nextBeforeId, other.nextBeforeId);
+        _deepEquals(next, other.next);
   }
 
   @override
@@ -627,7 +813,7 @@ class JournalPageDto {
 
   @override
   String toString() {
-    return 'JournalPageDto(items: $items, hasMore: $hasMore, nextBeforeTime: $nextBeforeTime, nextBeforeId: $nextBeforeId)';
+    return 'JournalPageDto(items: $items, hasMore: $hasMore, next: $next)';
   }
 }
 
@@ -637,6 +823,7 @@ class SummaryDto {
     required this.totalEvents,
     required this.withSignatureLast100,
     required this.checkedLast100,
+    required this.mirrorRecords,
     this.lastEventAt,
   });
 
@@ -648,6 +835,10 @@ class SummaryDto {
 
   int checkedLast100;
 
+  /// Сколько записей пришло из системного журнала. Ноль при выданном разрешении — сигнал,
+  /// что синхронизация не работает, а не что звонков не было.
+  int mirrorRecords;
+
   int? lastEventAt;
 
   List<Object?> _toList() {
@@ -656,6 +847,7 @@ class SummaryDto {
       totalEvents,
       withSignatureLast100,
       checkedLast100,
+      mirrorRecords,
       lastEventAt,
     ];
   }
@@ -671,7 +863,8 @@ class SummaryDto {
       totalEvents: result[1]! as int,
       withSignatureLast100: result[2]! as int,
       checkedLast100: result[3]! as int,
-      lastEventAt: result[4] as int?,
+      mirrorRecords: result[4]! as int,
+      lastEventAt: result[5] as int?,
     );
   }
 
@@ -688,6 +881,7 @@ class SummaryDto {
         _deepEquals(totalEvents, other.totalEvents) &&
         _deepEquals(withSignatureLast100, other.withSignatureLast100) &&
         _deepEquals(checkedLast100, other.checkedLast100) &&
+        _deepEquals(mirrorRecords, other.mirrorRecords) &&
         _deepEquals(lastEventAt, other.lastEventAt);
   }
 
@@ -697,20 +891,105 @@ class SummaryDto {
 
   @override
   String toString() {
-    return 'SummaryDto(blockedToday: $blockedToday, totalEvents: $totalEvents, withSignatureLast100: $withSignatureLast100, checkedLast100: $checkedLast100, lastEventAt: $lastEventAt)';
+    return 'SummaryDto(blockedToday: $blockedToday, totalEvents: $totalEvents, withSignatureLast100: $withSignatureLast100, checkedLast100: $checkedLast100, mirrorRecords: $mirrorRecords, lastEventAt: $lastEventAt)';
+  }
+}
+
+/// Итог синхронизации зеркала системного журнала (ТЗ §7.2).
+class SyncResultDto {
+  SyncResultDto({
+    required this.available,
+    required this.fetched,
+    required this.stitched,
+    required this.lateNames,
+  });
+
+  /// Есть ли доступ к системному журналу. Без него зеркало не наполняется вообще.
+  bool available;
+
+  int fetched;
+
+  int stitched;
+
+  /// Названий, ставших известными уже после решения. Ключевой показатель §21 п. 4:
+  /// если подпись досылается, правила по названию на таких звонках работать не могут.
+  int lateNames;
+
+  List<Object?> _toList() {
+    return <Object?>[available, fetched, stitched, lateNames];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static SyncResultDto decode(Object result) {
+    result as List<Object?>;
+    return SyncResultDto(
+      available: result[0]! as bool,
+      fetched: result[1]! as int,
+      stitched: result[2]! as int,
+      lateNames: result[3]! as int,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! SyncResultDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(available, other.available) &&
+        _deepEquals(fetched, other.fetched) &&
+        _deepEquals(stitched, other.stitched) &&
+        _deepEquals(lateNames, other.lateNames);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'SyncResultDto(available: $available, fetched: $fetched, stitched: $stitched, lateNames: $lateNames)';
   }
 }
 
 class PreviewDto {
-  PreviewDto({required this.count, required this.truncated});
+  PreviewDto({
+    required this.count,
+    required this.truncated,
+    required this.contactsTruncated,
+    this.allowRulesCovered,
+    this.contactsCovered,
+  });
 
   int count;
 
   /// Окно предпросмотра усечено: показывать надо «≥ N» (ТЗ §18 п. 16).
   bool truncated;
 
+  /// Книга контактов прочитана не до конца — [contactsCovered] это нижняя граница.
+  bool contactsTruncated;
+
+  /// Сколько разрешающих правил новое правило перекрывает. `null` — не считали.
+  int? allowRulesCovered;
+
+  /// Сколько номеров из телефонной книги попадёт под правило. `null` — нет доступа
+  /// к контактам: «ноль контактов» и «мы не смогли проверить» — разные утверждения.
+  int? contactsCovered;
+
   List<Object?> _toList() {
-    return <Object?>[count, truncated];
+    return <Object?>[
+      count,
+      truncated,
+      contactsTruncated,
+      allowRulesCovered,
+      contactsCovered,
+    ];
   }
 
   Object encode() {
@@ -719,7 +998,13 @@ class PreviewDto {
 
   static PreviewDto decode(Object result) {
     result as List<Object?>;
-    return PreviewDto(count: result[0]! as int, truncated: result[1]! as bool);
+    return PreviewDto(
+      count: result[0]! as int,
+      truncated: result[1]! as bool,
+      contactsTruncated: result[2]! as bool,
+      allowRulesCovered: result[3] as int?,
+      contactsCovered: result[4] as int?,
+    );
   }
 
   @override
@@ -732,7 +1017,10 @@ class PreviewDto {
       return true;
     }
     return _deepEquals(count, other.count) &&
-        _deepEquals(truncated, other.truncated);
+        _deepEquals(truncated, other.truncated) &&
+        _deepEquals(contactsTruncated, other.contactsTruncated) &&
+        _deepEquals(allowRulesCovered, other.allowRulesCovered) &&
+        _deepEquals(contactsCovered, other.contactsCovered);
   }
 
   @override
@@ -741,7 +1029,1097 @@ class PreviewDto {
 
   @override
   String toString() {
-    return 'PreviewDto(count: $count, truncated: $truncated)';
+    return 'PreviewDto(count: $count, truncated: $truncated, contactsTruncated: $contactsTruncated, allowRulesCovered: $allowRulesCovered, contactsCovered: $contactsCovered)';
+  }
+}
+
+/// Отчёт об импорте правил (ТЗ §15.8): что добавлено, что пропущено, что отклонено и почему.
+class ImportReportDto {
+  ImportReportDto({
+    required this.ok,
+    required this.added,
+    required this.updated,
+    required this.duplicates,
+    required this.removed,
+    required this.rejected,
+    required this.snapshotRebuilt,
+    this.error,
+  });
+
+  /// `false` — файл не разобран целиком: причина в [error], остальные поля пусты.
+  bool ok;
+
+  int added;
+
+  int updated;
+
+  int duplicates;
+
+  /// Названия удалённых правил, а не их число: «удалено 7» ничего не объясняет.
+  List<String> removed;
+
+  /// Отклонённые записи: «строка 3 «Мой банк» — неверное регулярное выражение».
+  List<String> rejected;
+
+  /// Снимок правил пересобран. `false` — правила в базе новые, а решения ещё старые.
+  bool snapshotRebuilt;
+
+  String? error;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      ok,
+      added,
+      updated,
+      duplicates,
+      removed,
+      rejected,
+      snapshotRebuilt,
+      error,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static ImportReportDto decode(Object result) {
+    result as List<Object?>;
+    return ImportReportDto(
+      ok: result[0]! as bool,
+      added: result[1]! as int,
+      updated: result[2]! as int,
+      duplicates: result[3]! as int,
+      removed: (result[4]! as List<Object?>).cast<String>(),
+      rejected: (result[5]! as List<Object?>).cast<String>(),
+      snapshotRebuilt: result[6]! as bool,
+      error: result[7] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! ImportReportDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(ok, other.ok) &&
+        _deepEquals(added, other.added) &&
+        _deepEquals(updated, other.updated) &&
+        _deepEquals(duplicates, other.duplicates) &&
+        _deepEquals(removed, other.removed) &&
+        _deepEquals(rejected, other.rejected) &&
+        _deepEquals(snapshotRebuilt, other.snapshotRebuilt) &&
+        _deepEquals(error, other.error);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'ImportReportDto(ok: $ok, added: $added, updated: $updated, duplicates: $duplicates, removed: $removed, rejected: $rejected, snapshotRebuilt: $snapshotRebuilt, error: $error)';
+  }
+}
+
+/// Состояние обновления (ТЗ §15.5). Ошибка приходит текстом и показывается только
+/// на своём экране: всплывающих окон при автопроверке быть не должно.
+class UpdateStatusDto {
+  UpdateStatusDto({
+    required this.state,
+    required this.currentVersion,
+    this.version,
+    this.build,
+    this.notesUrl,
+    this.error,
+    this.sizeBytes,
+  });
+
+  /// AVAILABLE — есть новее; UP_TO_DATE — установлена актуальная; FAILURE — не проверить.
+  String state;
+
+  String currentVersion;
+
+  String? version;
+
+  int? build;
+
+  String? notesUrl;
+
+  String? error;
+
+  int? sizeBytes;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      state,
+      currentVersion,
+      version,
+      build,
+      notesUrl,
+      error,
+      sizeBytes,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static UpdateStatusDto decode(Object result) {
+    result as List<Object?>;
+    return UpdateStatusDto(
+      state: result[0]! as String,
+      currentVersion: result[1]! as String,
+      version: result[2] as String?,
+      build: result[3] as int?,
+      notesUrl: result[4] as String?,
+      error: result[5] as String?,
+      sizeBytes: result[6] as int?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! UpdateStatusDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(state, other.state) &&
+        _deepEquals(currentVersion, other.currentVersion) &&
+        _deepEquals(version, other.version) &&
+        _deepEquals(build, other.build) &&
+        _deepEquals(notesUrl, other.notesUrl) &&
+        _deepEquals(error, other.error) &&
+        _deepEquals(sizeBytes, other.sizeBytes);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'UpdateStatusDto(state: $state, currentVersion: $currentVersion, version: $version, build: $build, notesUrl: $notesUrl, error: $error, sizeBytes: $sizeBytes)';
+  }
+}
+
+/// Состояние режима наблюдения (ТЗ §7.7.2): настройки и занятый объём в одном месте.
+class ObservationStatusDto {
+  ObservationStatusDto({
+    required this.enabled,
+    required this.techEnabled,
+    required this.techVerbose,
+    required this.callsRetentionDays,
+    required this.callsMaxMb,
+    required this.techRetentionDays,
+    required this.techMaxMb,
+    required this.maskByDefault,
+    required this.callsBytes,
+    required this.techBytes,
+    required this.dailyBytesEstimate,
+    required this.droppedTechLines,
+    required this.installId,
+    this.oldestAt,
+  });
+
+  bool enabled;
+
+  bool techEnabled;
+
+  bool techVerbose;
+
+  int callsRetentionDays;
+
+  int callsMaxMb;
+
+  int techRetentionDays;
+
+  int techMaxMb;
+
+  bool maskByDefault;
+
+  int callsBytes;
+
+  int techBytes;
+
+  /// Оценка прироста в сутки: без неё «100 МБ» ни о чём не говорит.
+  int dailyBytesEstimate;
+
+  int droppedTechLines;
+
+  String installId;
+
+  /// С какого момента есть данные — «есть данные с 12 июня» (ТЗ §7.7.2).
+  int? oldestAt;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      enabled,
+      techEnabled,
+      techVerbose,
+      callsRetentionDays,
+      callsMaxMb,
+      techRetentionDays,
+      techMaxMb,
+      maskByDefault,
+      callsBytes,
+      techBytes,
+      dailyBytesEstimate,
+      droppedTechLines,
+      installId,
+      oldestAt,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static ObservationStatusDto decode(Object result) {
+    result as List<Object?>;
+    return ObservationStatusDto(
+      enabled: result[0]! as bool,
+      techEnabled: result[1]! as bool,
+      techVerbose: result[2]! as bool,
+      callsRetentionDays: result[3]! as int,
+      callsMaxMb: result[4]! as int,
+      techRetentionDays: result[5]! as int,
+      techMaxMb: result[6]! as int,
+      maskByDefault: result[7]! as bool,
+      callsBytes: result[8]! as int,
+      techBytes: result[9]! as int,
+      dailyBytesEstimate: result[10]! as int,
+      droppedTechLines: result[11]! as int,
+      installId: result[12]! as String,
+      oldestAt: result[13] as int?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! ObservationStatusDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(enabled, other.enabled) &&
+        _deepEquals(techEnabled, other.techEnabled) &&
+        _deepEquals(techVerbose, other.techVerbose) &&
+        _deepEquals(callsRetentionDays, other.callsRetentionDays) &&
+        _deepEquals(callsMaxMb, other.callsMaxMb) &&
+        _deepEquals(techRetentionDays, other.techRetentionDays) &&
+        _deepEquals(techMaxMb, other.techMaxMb) &&
+        _deepEquals(maskByDefault, other.maskByDefault) &&
+        _deepEquals(callsBytes, other.callsBytes) &&
+        _deepEquals(techBytes, other.techBytes) &&
+        _deepEquals(dailyBytesEstimate, other.dailyBytesEstimate) &&
+        _deepEquals(droppedTechLines, other.droppedTechLines) &&
+        _deepEquals(installId, other.installId) &&
+        _deepEquals(oldestAt, other.oldestAt);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'ObservationStatusDto(enabled: $enabled, techEnabled: $techEnabled, techVerbose: $techVerbose, callsRetentionDays: $callsRetentionDays, callsMaxMb: $callsMaxMb, techRetentionDays: $techRetentionDays, techMaxMb: $techMaxMb, maskByDefault: $maskByDefault, callsBytes: $callsBytes, techBytes: $techBytes, dailyBytesEstimate: $dailyBytesEstimate, droppedTechLines: $droppedTechLines, installId: $installId, oldestAt: $oldestAt)';
+  }
+}
+
+/// Разбивка «значение — сколько раз». Для сводки §7.7.5.
+class BucketDto {
+  BucketDto({required this.label, required this.total});
+
+  String label;
+
+  int total;
+
+  List<Object?> _toList() {
+    return <Object?>[label, total];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static BucketDto decode(Object result) {
+    result as List<Object?>;
+    return BucketDto(label: result[0]! as String, total: result[1]! as int);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! BucketDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(label, other.label) && _deepEquals(total, other.total);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'BucketDto(label: $label, total: $total)';
+  }
+}
+
+/// Наблюдённая операторская подпись: дословно и рядом свёрнутая форма (ТЗ §7.7.5).
+class SignatureDto {
+  SignatureDto({
+    required this.raw,
+    required this.total,
+    required this.lastAt,
+    this.fold,
+  });
+
+  String raw;
+
+  int total;
+
+  int lastAt;
+
+  String? fold;
+
+  List<Object?> _toList() {
+    return <Object?>[raw, total, lastAt, fold];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static SignatureDto decode(Object result) {
+    result as List<Object?>;
+    return SignatureDto(
+      raw: result[0]! as String,
+      total: result[1]! as int,
+      lastAt: result[2]! as int,
+      fold: result[3] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! SignatureDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(raw, other.raw) &&
+        _deepEquals(total, other.total) &&
+        _deepEquals(lastAt, other.lastAt) &&
+        _deepEquals(fold, other.fold);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'SignatureDto(raw: $raw, total: $total, lastAt: $lastAt, fold: $fold)';
+  }
+}
+
+/// Сводка режима наблюдения (ТЗ §7.7.5).
+class ObservationReportDto {
+  ObservationReportDto({
+    required this.periodDays,
+    required this.checks,
+    required this.withSignature,
+    required this.withoutName,
+    required this.lateNames,
+    required this.hiddenNumbers,
+    required this.coldStarts,
+    required this.watchdogFired,
+    required this.latencyP50,
+    required this.latencyP95,
+    required this.latencyMax,
+    required this.nameSources,
+    required this.networkTypes,
+    required this.volte,
+    required this.extrasKeys,
+    required this.signatures,
+  });
+
+  int periodDays;
+
+  int checks;
+
+  int withSignature;
+
+  int withoutName;
+
+  /// Сколько названий стало известно уже после решения — ключевой показатель §21 п. 4.
+  int lateNames;
+
+  int hiddenNumbers;
+
+  int coldStarts;
+
+  int watchdogFired;
+
+  int latencyP50;
+
+  int latencyP95;
+
+  int latencyMax;
+
+  List<BucketDto> nameSources;
+
+  List<BucketDto> networkTypes;
+
+  List<BucketDto> volte;
+
+  List<BucketDto> extrasKeys;
+
+  List<SignatureDto> signatures;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      periodDays,
+      checks,
+      withSignature,
+      withoutName,
+      lateNames,
+      hiddenNumbers,
+      coldStarts,
+      watchdogFired,
+      latencyP50,
+      latencyP95,
+      latencyMax,
+      nameSources,
+      networkTypes,
+      volte,
+      extrasKeys,
+      signatures,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static ObservationReportDto decode(Object result) {
+    result as List<Object?>;
+    return ObservationReportDto(
+      periodDays: result[0]! as int,
+      checks: result[1]! as int,
+      withSignature: result[2]! as int,
+      withoutName: result[3]! as int,
+      lateNames: result[4]! as int,
+      hiddenNumbers: result[5]! as int,
+      coldStarts: result[6]! as int,
+      watchdogFired: result[7]! as int,
+      latencyP50: result[8]! as int,
+      latencyP95: result[9]! as int,
+      latencyMax: result[10]! as int,
+      nameSources: (result[11]! as List<Object?>).cast<BucketDto>(),
+      networkTypes: (result[12]! as List<Object?>).cast<BucketDto>(),
+      volte: (result[13]! as List<Object?>).cast<BucketDto>(),
+      extrasKeys: (result[14]! as List<Object?>).cast<BucketDto>(),
+      signatures: (result[15]! as List<Object?>).cast<SignatureDto>(),
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! ObservationReportDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(periodDays, other.periodDays) &&
+        _deepEquals(checks, other.checks) &&
+        _deepEquals(withSignature, other.withSignature) &&
+        _deepEquals(withoutName, other.withoutName) &&
+        _deepEquals(lateNames, other.lateNames) &&
+        _deepEquals(hiddenNumbers, other.hiddenNumbers) &&
+        _deepEquals(coldStarts, other.coldStarts) &&
+        _deepEquals(watchdogFired, other.watchdogFired) &&
+        _deepEquals(latencyP50, other.latencyP50) &&
+        _deepEquals(latencyP95, other.latencyP95) &&
+        _deepEquals(latencyMax, other.latencyMax) &&
+        _deepEquals(nameSources, other.nameSources) &&
+        _deepEquals(networkTypes, other.networkTypes) &&
+        _deepEquals(volte, other.volte) &&
+        _deepEquals(extrasKeys, other.extrasKeys) &&
+        _deepEquals(signatures, other.signatures);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'ObservationReportDto(periodDays: $periodDays, checks: $checks, withSignature: $withSignature, withoutName: $withoutName, lateNames: $lateNames, hiddenNumbers: $hiddenNumbers, coldStarts: $coldStarts, watchdogFired: $watchdogFired, latencyP50: $latencyP50, latencyP95: $latencyP95, latencyMax: $latencyMax, nameSources: $nameSources, networkTypes: $networkTypes, volte: $volte, extrasKeys: $extrasKeys, signatures: $signatures)';
+  }
+}
+
+/// Что именно уйдёт в выгрузке (ТЗ §7.7.3 п. 2).
+class ExportEstimateDto {
+  ExportEstimateDto({required this.callLines, required this.archiveBytes});
+
+  int callLines;
+
+  int archiveBytes;
+
+  List<Object?> _toList() {
+    return <Object?>[callLines, archiveBytes];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static ExportEstimateDto decode(Object result) {
+    result as List<Object?>;
+    return ExportEstimateDto(
+      callLines: result[0]! as int,
+      archiveBytes: result[1]! as int,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! ExportEstimateDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(callLines, other.callLines) &&
+        _deepEquals(archiveBytes, other.archiveBytes);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'ExportEstimateDto(callLines: $callLines, archiveBytes: $archiveBytes)';
+  }
+}
+
+/// Отчёт диагностики (ТЗ §9.7). Экран обязательный: блокировка отказывает тихо, и без
+/// диагностики поддержка возможна только подключением к телефону пользователя.
+class DiagnosticsDto {
+  DiagnosticsDto({
+    required this.checksLast7Days,
+    required this.latencyP50,
+    required this.latencyP95,
+    required this.latencyMax,
+    required this.degradedCounts,
+    required this.ruleErrors,
+    required this.lastEvents,
+    required this.nameSources,
+    required this.withSignatureLast100,
+    required this.checkedLast100,
+    required this.volte,
+    required this.signatureLooksUnavailable,
+    required this.device,
+    required this.reportText,
+    this.snapshotFormatVersion,
+    this.snapshotCanonVersion,
+    this.snapshotRuleCount,
+    this.snapshotBuiltAt,
+    this.snapshotError,
+    this.batteryUnrestricted,
+  });
+
+  int checksLast7Days;
+
+  int latencyP50;
+
+  int latencyP95;
+
+  int latencyMax;
+
+  List<BucketDto> degradedCounts;
+
+  List<RuleErrorDto> ruleErrors;
+
+  List<EventLineDto> lastEvents;
+
+  List<BucketDto> nameSources;
+
+  int withSignatureLast100;
+
+  int checkedLast100;
+
+  List<BucketDto> volte;
+
+  /// Подписи не встречались ни разу на достаточной выборке: правила по названию не сработают,
+  /// и сказать это надо до того, как пользователь их построит.
+  bool signatureLooksUnavailable;
+
+  String device;
+
+  /// Готовый текст для кнопки «Скопировать отчёт». Номера в нём замаскированы.
+  String reportText;
+
+  int? snapshotFormatVersion;
+
+  int? snapshotCanonVersion;
+
+  int? snapshotRuleCount;
+
+  int? snapshotBuiltAt;
+
+  String? snapshotError;
+
+  /// Исключено ли приложение из ограничений энергосбережения. `null` — определить не удалось.
+  bool? batteryUnrestricted;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      checksLast7Days,
+      latencyP50,
+      latencyP95,
+      latencyMax,
+      degradedCounts,
+      ruleErrors,
+      lastEvents,
+      nameSources,
+      withSignatureLast100,
+      checkedLast100,
+      volte,
+      signatureLooksUnavailable,
+      device,
+      reportText,
+      snapshotFormatVersion,
+      snapshotCanonVersion,
+      snapshotRuleCount,
+      snapshotBuiltAt,
+      snapshotError,
+      batteryUnrestricted,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static DiagnosticsDto decode(Object result) {
+    result as List<Object?>;
+    return DiagnosticsDto(
+      checksLast7Days: result[0]! as int,
+      latencyP50: result[1]! as int,
+      latencyP95: result[2]! as int,
+      latencyMax: result[3]! as int,
+      degradedCounts: (result[4]! as List<Object?>).cast<BucketDto>(),
+      ruleErrors: (result[5]! as List<Object?>).cast<RuleErrorDto>(),
+      lastEvents: (result[6]! as List<Object?>).cast<EventLineDto>(),
+      nameSources: (result[7]! as List<Object?>).cast<BucketDto>(),
+      withSignatureLast100: result[8]! as int,
+      checkedLast100: result[9]! as int,
+      volte: (result[10]! as List<Object?>).cast<BucketDto>(),
+      signatureLooksUnavailable: result[11]! as bool,
+      device: result[12]! as String,
+      reportText: result[13]! as String,
+      snapshotFormatVersion: result[14] as int?,
+      snapshotCanonVersion: result[15] as int?,
+      snapshotRuleCount: result[16] as int?,
+      snapshotBuiltAt: result[17] as int?,
+      snapshotError: result[18] as String?,
+      batteryUnrestricted: result[19] as bool?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! DiagnosticsDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(checksLast7Days, other.checksLast7Days) &&
+        _deepEquals(latencyP50, other.latencyP50) &&
+        _deepEquals(latencyP95, other.latencyP95) &&
+        _deepEquals(latencyMax, other.latencyMax) &&
+        _deepEquals(degradedCounts, other.degradedCounts) &&
+        _deepEquals(ruleErrors, other.ruleErrors) &&
+        _deepEquals(lastEvents, other.lastEvents) &&
+        _deepEquals(nameSources, other.nameSources) &&
+        _deepEquals(withSignatureLast100, other.withSignatureLast100) &&
+        _deepEquals(checkedLast100, other.checkedLast100) &&
+        _deepEquals(volte, other.volte) &&
+        _deepEquals(
+          signatureLooksUnavailable,
+          other.signatureLooksUnavailable,
+        ) &&
+        _deepEquals(device, other.device) &&
+        _deepEquals(reportText, other.reportText) &&
+        _deepEquals(snapshotFormatVersion, other.snapshotFormatVersion) &&
+        _deepEquals(snapshotCanonVersion, other.snapshotCanonVersion) &&
+        _deepEquals(snapshotRuleCount, other.snapshotRuleCount) &&
+        _deepEquals(snapshotBuiltAt, other.snapshotBuiltAt) &&
+        _deepEquals(snapshotError, other.snapshotError) &&
+        _deepEquals(batteryUnrestricted, other.batteryUnrestricted);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'DiagnosticsDto(checksLast7Days: $checksLast7Days, latencyP50: $latencyP50, latencyP95: $latencyP95, latencyMax: $latencyMax, degradedCounts: $degradedCounts, ruleErrors: $ruleErrors, lastEvents: $lastEvents, nameSources: $nameSources, withSignatureLast100: $withSignatureLast100, checkedLast100: $checkedLast100, volte: $volte, signatureLooksUnavailable: $signatureLooksUnavailable, device: $device, reportText: $reportText, snapshotFormatVersion: $snapshotFormatVersion, snapshotCanonVersion: $snapshotCanonVersion, snapshotRuleCount: $snapshotRuleCount, snapshotBuiltAt: $snapshotBuiltAt, snapshotError: $snapshotError, batteryUnrestricted: $batteryUnrestricted)';
+  }
+}
+
+class RuleErrorDto {
+  RuleErrorDto({required this.title, required this.errorCount, this.lastError});
+
+  String title;
+
+  int errorCount;
+
+  String? lastError;
+
+  List<Object?> _toList() {
+    return <Object?>[title, errorCount, lastError];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static RuleErrorDto decode(Object result) {
+    result as List<Object?>;
+    return RuleErrorDto(
+      title: result[0]! as String,
+      errorCount: result[1]! as int,
+      lastError: result[2] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! RuleErrorDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(title, other.title) &&
+        _deepEquals(errorCount, other.errorCount) &&
+        _deepEquals(lastError, other.lastError);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'RuleErrorDto(title: $title, errorCount: $errorCount, lastError: $lastError)';
+  }
+}
+
+class EventLineDto {
+  EventLineDto({
+    required this.occurredAt,
+    required this.number,
+    required this.action,
+    required this.reason,
+    required this.latencyMs,
+    this.coldStart,
+  });
+
+  int occurredAt;
+
+  String number;
+
+  String action;
+
+  String reason;
+
+  int latencyMs;
+
+  bool? coldStart;
+
+  List<Object?> _toList() {
+    return <Object?>[occurredAt, number, action, reason, latencyMs, coldStart];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static EventLineDto decode(Object result) {
+    result as List<Object?>;
+    return EventLineDto(
+      occurredAt: result[0]! as int,
+      number: result[1]! as String,
+      action: result[2]! as String,
+      reason: result[3]! as String,
+      latencyMs: result[4]! as int,
+      coldStart: result[5] as bool?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! EventLineDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(occurredAt, other.occurredAt) &&
+        _deepEquals(number, other.number) &&
+        _deepEquals(action, other.action) &&
+        _deepEquals(reason, other.reason) &&
+        _deepEquals(latencyMs, other.latencyMs) &&
+        _deepEquals(coldStart, other.coldStart);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'EventLineDto(occurredAt: $occurredAt, number: $number, action: $action, reason: $reason, latencyMs: $latencyMs, coldStart: $coldStart)';
+  }
+}
+
+/// Шаг тестового прогона: какое правило проверялось и что вышло (ТЗ §9.7).
+class TraceStepDto {
+  TraceStepDto({
+    required this.ruleId,
+    required this.title,
+    required this.target,
+    required this.matchType,
+    required this.canonical,
+    required this.matched,
+    this.skippedReason,
+  });
+
+  int ruleId;
+
+  String title;
+
+  String target;
+
+  String matchType;
+
+  String canonical;
+
+  bool matched;
+
+  String? skippedReason;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      ruleId,
+      title,
+      target,
+      matchType,
+      canonical,
+      matched,
+      skippedReason,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static TraceStepDto decode(Object result) {
+    result as List<Object?>;
+    return TraceStepDto(
+      ruleId: result[0]! as int,
+      title: result[1]! as String,
+      target: result[2]! as String,
+      matchType: result[3]! as String,
+      canonical: result[4]! as String,
+      matched: result[5]! as bool,
+      skippedReason: result[6] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! TraceStepDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(ruleId, other.ruleId) &&
+        _deepEquals(title, other.title) &&
+        _deepEquals(target, other.target) &&
+        _deepEquals(matchType, other.matchType) &&
+        _deepEquals(canonical, other.canonical) &&
+        _deepEquals(matched, other.matched) &&
+        _deepEquals(skippedReason, other.skippedReason);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'TraceStepDto(ruleId: $ruleId, title: $title, target: $target, matchType: $matchType, canonical: $canonical, matched: $matched, skippedReason: $skippedReason)';
+  }
+}
+
+/// Результат тестового прогона: способ проверить решение без второго телефона (ТЗ §9.7).
+class TestRunDto {
+  TestRunDto({
+    required this.digits,
+    required this.candidates,
+    required this.nameNorm,
+    required this.nameFold,
+    required this.orgFold,
+    required this.action,
+    required this.reason,
+    required this.elapsedMicros,
+    required this.steps,
+    required this.snapshotMissing,
+    this.e164,
+    this.categoryFold,
+    this.matchedRuleId,
+    this.matchedRuleTitle,
+  });
+
+  String digits;
+
+  List<String> candidates;
+
+  String nameNorm;
+
+  String nameFold;
+
+  String orgFold;
+
+  String action;
+
+  String reason;
+
+  int elapsedMicros;
+
+  List<TraceStepDto> steps;
+
+  /// Снимка правил нет: решение было бы «пропустить», и это надо показать прямо.
+  bool snapshotMissing;
+
+  String? e164;
+
+  String? categoryFold;
+
+  int? matchedRuleId;
+
+  String? matchedRuleTitle;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      digits,
+      candidates,
+      nameNorm,
+      nameFold,
+      orgFold,
+      action,
+      reason,
+      elapsedMicros,
+      steps,
+      snapshotMissing,
+      e164,
+      categoryFold,
+      matchedRuleId,
+      matchedRuleTitle,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static TestRunDto decode(Object result) {
+    result as List<Object?>;
+    return TestRunDto(
+      digits: result[0]! as String,
+      candidates: (result[1]! as List<Object?>).cast<String>(),
+      nameNorm: result[2]! as String,
+      nameFold: result[3]! as String,
+      orgFold: result[4]! as String,
+      action: result[5]! as String,
+      reason: result[6]! as String,
+      elapsedMicros: result[7]! as int,
+      steps: (result[8]! as List<Object?>).cast<TraceStepDto>(),
+      snapshotMissing: result[9]! as bool,
+      e164: result[10] as String?,
+      categoryFold: result[11] as String?,
+      matchedRuleId: result[12] as int?,
+      matchedRuleTitle: result[13] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! TestRunDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(digits, other.digits) &&
+        _deepEquals(candidates, other.candidates) &&
+        _deepEquals(nameNorm, other.nameNorm) &&
+        _deepEquals(nameFold, other.nameFold) &&
+        _deepEquals(orgFold, other.orgFold) &&
+        _deepEquals(action, other.action) &&
+        _deepEquals(reason, other.reason) &&
+        _deepEquals(elapsedMicros, other.elapsedMicros) &&
+        _deepEquals(steps, other.steps) &&
+        _deepEquals(snapshotMissing, other.snapshotMissing) &&
+        _deepEquals(e164, other.e164) &&
+        _deepEquals(categoryFold, other.categoryFold) &&
+        _deepEquals(matchedRuleId, other.matchedRuleId) &&
+        _deepEquals(matchedRuleTitle, other.matchedRuleTitle);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'TestRunDto(digits: $digits, candidates: $candidates, nameNorm: $nameNorm, nameFold: $nameFold, orgFold: $orgFold, action: $action, reason: $reason, elapsedMicros: $elapsedMicros, steps: $steps, snapshotMissing: $snapshotMissing, e164: $e164, categoryFold: $categoryFold, matchedRuleId: $matchedRuleId, matchedRuleTitle: $matchedRuleTitle)';
   }
 }
 
@@ -767,14 +2145,59 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is JournalItemDto) {
       buffer.putUint8(133);
       writeValue(buffer, value.encode());
-    } else if (value is JournalPageDto) {
+    } else if (value is JournalCursorDto) {
       buffer.putUint8(134);
       writeValue(buffer, value.encode());
-    } else if (value is SummaryDto) {
+    } else if (value is JournalFilterDto) {
       buffer.putUint8(135);
       writeValue(buffer, value.encode());
-    } else if (value is PreviewDto) {
+    } else if (value is JournalPageDto) {
       buffer.putUint8(136);
+      writeValue(buffer, value.encode());
+    } else if (value is SummaryDto) {
+      buffer.putUint8(137);
+      writeValue(buffer, value.encode());
+    } else if (value is SyncResultDto) {
+      buffer.putUint8(138);
+      writeValue(buffer, value.encode());
+    } else if (value is PreviewDto) {
+      buffer.putUint8(139);
+      writeValue(buffer, value.encode());
+    } else if (value is ImportReportDto) {
+      buffer.putUint8(140);
+      writeValue(buffer, value.encode());
+    } else if (value is UpdateStatusDto) {
+      buffer.putUint8(141);
+      writeValue(buffer, value.encode());
+    } else if (value is ObservationStatusDto) {
+      buffer.putUint8(142);
+      writeValue(buffer, value.encode());
+    } else if (value is BucketDto) {
+      buffer.putUint8(143);
+      writeValue(buffer, value.encode());
+    } else if (value is SignatureDto) {
+      buffer.putUint8(144);
+      writeValue(buffer, value.encode());
+    } else if (value is ObservationReportDto) {
+      buffer.putUint8(145);
+      writeValue(buffer, value.encode());
+    } else if (value is ExportEstimateDto) {
+      buffer.putUint8(146);
+      writeValue(buffer, value.encode());
+    } else if (value is DiagnosticsDto) {
+      buffer.putUint8(147);
+      writeValue(buffer, value.encode());
+    } else if (value is RuleErrorDto) {
+      buffer.putUint8(148);
+      writeValue(buffer, value.encode());
+    } else if (value is EventLineDto) {
+      buffer.putUint8(149);
+      writeValue(buffer, value.encode());
+    } else if (value is TraceStepDto) {
+      buffer.putUint8(150);
+      writeValue(buffer, value.encode());
+    } else if (value is TestRunDto) {
+      buffer.putUint8(151);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -795,11 +2218,41 @@ class _PigeonCodec extends StandardMessageCodec {
       case 133:
         return JournalItemDto.decode(readValue(buffer)!);
       case 134:
-        return JournalPageDto.decode(readValue(buffer)!);
+        return JournalCursorDto.decode(readValue(buffer)!);
       case 135:
-        return SummaryDto.decode(readValue(buffer)!);
+        return JournalFilterDto.decode(readValue(buffer)!);
       case 136:
+        return JournalPageDto.decode(readValue(buffer)!);
+      case 137:
+        return SummaryDto.decode(readValue(buffer)!);
+      case 138:
+        return SyncResultDto.decode(readValue(buffer)!);
+      case 139:
         return PreviewDto.decode(readValue(buffer)!);
+      case 140:
+        return ImportReportDto.decode(readValue(buffer)!);
+      case 141:
+        return UpdateStatusDto.decode(readValue(buffer)!);
+      case 142:
+        return ObservationStatusDto.decode(readValue(buffer)!);
+      case 143:
+        return BucketDto.decode(readValue(buffer)!);
+      case 144:
+        return SignatureDto.decode(readValue(buffer)!);
+      case 145:
+        return ObservationReportDto.decode(readValue(buffer)!);
+      case 146:
+        return ExportEstimateDto.decode(readValue(buffer)!);
+      case 147:
+        return DiagnosticsDto.decode(readValue(buffer)!);
+      case 148:
+        return RuleErrorDto.decode(readValue(buffer)!);
+      case 149:
+        return EventLineDto.decode(readValue(buffer)!);
+      case 150:
+        return TraceStepDto.decode(readValue(buffer)!);
+      case 151:
+        return TestRunDto.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -846,6 +2299,29 @@ class StatusApi {
   Future<bool> requestRole() async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.nope_call.StatusApi.requestRole$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Запрашивает разрешения на журнал звонков, контакты и уведомления.
+  ///
+  /// Все три необязательны: без них блокировка по номеру работает, а зеркало журнала,
+  /// правило «есть в контактах» и уведомления — нет. Отказ не ломает приложение.
+  Future<bool> requestPermissions() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.StatusApi.requestPermissions$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -1067,6 +2543,50 @@ class RulesApi {
     );
     return pigeonVar_replyValue! as PreviewDto;
   }
+
+  /// Собирает JSON со всеми правилами и отдаёт его через системный выбор приложения
+  /// (ТЗ §15.8). Возвращает false, если делиться нечем.
+  Future<bool> exportRules() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.RulesApi.exportRules$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Открывает выбор файла и импортирует правила. Ответ приходит после выбора:
+  /// пользователь может и отменить — тогда `ok = false` с причиной «отменено».
+  Future<ImportReportDto> importRules(bool replaceAll) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.RulesApi.importRules$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[replaceAll],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as ImportReportDto;
+  }
 }
 
 class JournalApi {
@@ -1086,7 +2606,11 @@ class JournalApi {
 
   final String pigeonVar_messageChannelSuffix;
 
-  Future<JournalPageDto> page(int? beforeTime, int? beforeId, int limit) async {
+  Future<JournalPageDto> page(
+    JournalFilterDto filter,
+    JournalCursorDto? cursor,
+    int limit,
+  ) async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.nope_call.JournalApi.page$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
@@ -1095,7 +2619,7 @@ class JournalApi {
       binaryMessenger: pigeonVar_binaryMessenger,
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
-      <Object?>[beforeTime, beforeId, limit],
+      <Object?>[filter, cursor, limit],
     );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
@@ -1124,6 +2648,441 @@ class JournalApi {
       isNullValid: false,
     );
     return pigeonVar_replyValue! as SummaryDto;
+  }
+
+  /// Какие SIM встречались в журнале. Пусто — фильтр по SIM показывать незачем.
+  Future<List<String>> sims() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.JournalApi.sims$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return (pigeonVar_replyValue! as List<Object?>).cast<String>();
+  }
+
+  /// Скрыть запись локально. Системный журнал Android при этом не трогается (ТЗ §7.2).
+  Future<void> hide(int systemId) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.JournalApi.hide$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[systemId],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  /// Очистить журнал приложения. Системный журнал Android не затрагивается (ТЗ §7.6).
+  Future<int> clear() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.JournalApi.clear$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as int;
+  }
+
+  /// Синхронизировать зеркало системного журнала. Вызывается по жесту обновления:
+  /// разрешение могли выдать только что, и ждать перезапуска приложения незачем.
+  Future<SyncResultDto> syncCallLog() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.JournalApi.syncCallLog$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as SyncResultDto;
+  }
+
+  /// Выгрузка журнала в CSV за период и передача файла наружу (ТЗ §7.6).
+  /// Возвращает число выгруженных строк; 0 — выгружать было нечего.
+  Future<int> exportCsv(int? fromAt, int? toAt) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.JournalApi.exportCsv$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[fromAt, toAt],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as int;
+  }
+}
+
+class UpdaterApi {
+  /// Constructor for [UpdaterApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  UpdaterApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  /// Проверка обновления (ТЗ §15.5). `silent = true` — автопроверка при запуске:
+  /// её ошибки никуда не показываются, а только оседают в состоянии.
+  Future<UpdateStatusDto> check(bool allowPrerelease, bool silent) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.UpdaterApi.check$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[allowPrerelease, silent],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as UpdateStatusDto;
+  }
+
+  /// Скачивает APK, сверяет sha256 и отпечаток сертификата, отдаёт системному установщику.
+  /// Возвращает текст причины отказа либо null, если диалог установки запущен.
+  Future<String?> install(bool allowPrerelease) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.UpdaterApi.install$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[allowPrerelease],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+    return pigeonVar_replyValue as String?;
+  }
+
+  /// Открывает страницу релиза — путь установки вручную, если установщик отказал.
+  Future<void> openReleasePage(String url) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.UpdaterApi.openReleasePage$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[url],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+}
+
+class ObservationApi {
+  /// Constructor for [ObservationApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  ObservationApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  Future<ObservationStatusDto> status() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.ObservationApi.status$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as ObservationStatusDto;
+  }
+
+  Future<ObservationReportDto> report(int periodDays) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.ObservationApi.report$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[periodDays],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as ObservationReportDto;
+  }
+
+  /// Настройки режима. Все параметры регулируются, чтобы разбирать новое поведение
+  /// без выпуска новой сборки (ТЗ §7.7.2).
+  Future<void> setConfig(
+    bool enabled,
+    bool techEnabled,
+    bool techVerbose,
+    int callsRetentionDays,
+    int callsMaxMb,
+    int techRetentionDays,
+    int techMaxMb,
+    bool maskByDefault,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.ObservationApi.setConfig$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel
+        .send(<Object?>[
+          enabled,
+          techEnabled,
+          techVerbose,
+          callsRetentionDays,
+          callsMaxMb,
+          techRetentionDays,
+          techMaxMb,
+          maskByDefault,
+        ]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<ExportEstimateDto> estimate(int fromAt, int toAt) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.ObservationApi.estimate$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[fromAt, toAt],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as ExportEstimateDto;
+  }
+
+  /// Собирает архив и открывает системный выбор приложения. Приложение никуда ничего
+  /// не отправляет само: сеть доступна только апдейтеру (ТЗ §7.7.3 п. 4).
+  Future<bool> share(
+    int fromAt,
+    int toAt,
+    bool mask,
+    String periodLabel,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.ObservationApi.share$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[fromAt, toAt, mask, periodLabel],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Удаляет накопленное. Выключение режима данные не удаляет (ТЗ §7.7.2).
+  Future<int> deleteLogs() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.ObservationApi.deleteLogs$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as int;
+  }
+}
+
+class DiagnosticsApi {
+  /// Constructor for [DiagnosticsApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  DiagnosticsApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  Future<DiagnosticsDto> report() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.DiagnosticsApi.report$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as DiagnosticsDto;
+  }
+
+  /// Прогон идёт через настоящий снимок и настоящий движок: вторая реализация сопоставления
+  /// «для диагностики» тут же начала бы расходиться с первой.
+  Future<TestRunDto> testRun(String number, String? name) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.DiagnosticsApi.testRun$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[number, name],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as TestRunDto;
+  }
+
+  /// Открывает системный экран ограничений энергосбережения.
+  Future<void> openBatterySettings() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.DiagnosticsApi.openBatterySettings$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 }
 

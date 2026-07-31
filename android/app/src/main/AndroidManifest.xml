@@ -22,6 +22,15 @@
 
             usesCleartextTraffic=false — сеть есть только у апдейтера и только к GitHub
             по TLS (ТЗ §15.6).
+
+            ПРО СПИСОК РАЗРЕШЕНИЙ. В объединённом манифесте видны INTERNET
+            и REQUEST_INSTALL_PACKAGES — оба приходят из модуля :updater и нужны ровно
+            для одного: проверить latest.json и скачать APK нового выпуска (ТЗ §15.5).
+            К проверке звонков, журналу и логам наблюдения они отношения не имеют:
+            у модуля :updater нет зависимости ни на :core, ни на Room, и это проверяется
+            задачей сборки verifyUpdaterBoundaries, а не обещанием в документации.
+            Поэтому интерфейс говорит «сеть используется только для обновления»,
+            а не «сети нет» — второе было бы неправдой при таком списке разрешений.
         -->
 
         <activity
@@ -41,6 +50,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Отдача архива логов наружу (ТЗ §7.7.3 п. 4). Только через FileProvider: прямой
+            file:// Android не пропустит, а копировать архив в общее хранилище значило бы
+            оставить сырой журнал звонков там, откуда его никто не удалит.
+
+            grantUriPermissions даёт доступ ровно к отданному файлу и ровно тому приложению,
+            которое пользователь выбрал.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.logs"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Нужна инструменту Flutter для генерации GeneratedPluginRegistrant -->
         <meta-data

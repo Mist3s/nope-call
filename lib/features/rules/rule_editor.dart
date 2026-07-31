@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/nope_call_api.g.dart';
 import '../../data/repository.dart';
+import '../../widgets/async_view.dart';
 
 /// Редактор правила (ТЗ §9.5).
 ///
@@ -17,12 +18,33 @@ import '../../data/repository.dart';
 /// поэтому «заканчивается на» и «точное совпадение» по названию работают через раз — и молчать
 /// об этом нельзя.
 class RuleEditorScreen extends StatefulWidget {
-  const RuleEditorScreen({super.key, this.rule});
+  const RuleEditorScreen({super.key, this.rule, this.draft});
 
   final RuleDto? rule;
 
+  /// Предзаполнение для нового правила: открывается из карточки звонка и из сводки режима
+  /// наблюдения. Показать, что именно будет создано, а не заставлять набирать заново.
+  final RuleDraft? draft;
+
   @override
   State<RuleEditorScreen> createState() => _RuleEditorScreenState();
+}
+
+/// Заготовка правила: с чем открыть редактор.
+class RuleDraft {
+  const RuleDraft({
+    required this.title,
+    required this.targetType,
+    required this.matchType,
+    required this.pattern,
+    this.action = 'REJECT',
+  });
+
+  final String title;
+  final String targetType;
+  final String matchType;
+  final String pattern;
+  final String action;
 }
 
 class _RuleEditorScreenState extends State<RuleEditorScreen> {
@@ -46,6 +68,14 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
   @override
   void initState() {
     super.initState();
+    final draft = widget.draft;
+    if (draft != null) {
+      _titleController.text = draft.title;
+      _patternController.text = draft.pattern;
+      _target = draft.targetType;
+      _matchType = draft.matchType;
+      _action = draft.action;
+    }
     final rule = widget.rule;
     if (rule != null) {
       _titleController.text = rule.title;
@@ -195,6 +225,12 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
                 hintText: _target == 'NUMBER' ? '8495 или +7495' : 'реклама',
                 border: const OutlineInputBorder(),
                 errorText: check != null && !check.valid ? check.error : null,
+                // Без этого объяснение обрезается многоточием: у errorMaxLines значение
+                // по умолчанию null, а оно означает «мягкие переносы обрезать», а не
+                // «переносить сколько нужно». Сообщения валидатора длиннее строки —
+                // «после нормализации шаблон пуст: в нём нет ни цифр, ни букв» — и терялась
+                // именно та половина, которая говорит, что исправить.
+                errorMaxLines: 3,
               ),
             ),
           ],
@@ -216,11 +252,16 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
             }),
           ),
           const SizedBox(height: 8),
-          Text(
-            Labels.actionHints[_action] ?? '',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          Padding(
+            // 12 — внутренний отступ поля с обводкой. Ровно столько же у `helperText`
+            // над ним, иначе две подписи одного назначения идут по разным линиям.
+            padding: const EdgeInsets.only(left: 12),
+            child: Text(
+              Labels.actionHints[_action] ?? '',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
           ),
           const SizedBox(height: 16),
           SwitchListTile(
@@ -382,6 +423,9 @@ class _CanonicalNote extends StatelessWidget {
   }
 }
 
+/// Предпросмотр правила (ТЗ §18 п. 16): совпадения по журналу и, отдельно, сколько своих
+/// правило зацепит. Текст собирается в одном месте — его показывает ещё и карточка звонка,
+/// а две расходящиеся формулировки одного показателя хуже одной неидеальной.
 class _PreviewNote extends StatelessWidget {
   const _PreviewNote({required this.preview});
 
@@ -389,23 +433,15 @@ class _PreviewNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final count = preview.count;
-    final prefix = preview.truncated ? '≥ ' : '';
+    final warns =
+        (preview.contactsCovered ?? 0) > 0 ||
+        (preview.allowRulesCovered ?? 0) > 0;
     return _Note(
-      icon: Icons.search,
-      text: count == 0
-          ? 'В журнале нет записей, подходящих под это правило'
-          : 'Под правило попадает $prefix$count '
-                '${_plural(count)} в журнале',
+      // Иконка меняется, а цвет нет: «зацепит контакт» — это повод посмотреть внимательнее,
+      // а не ошибка. Красным в этом экране помечается только запрет.
+      icon: warns ? Icons.person_search_outlined : Icons.search,
+      text: previewText(preview),
     );
-  }
-
-  String _plural(int n) {
-    if (n % 10 == 1 && n % 100 != 11) return 'запись';
-    if ([2, 3, 4].contains(n % 10) && !(n % 100 >= 12 && n % 100 <= 14)) {
-      return 'записи';
-    }
-    return 'записей';
   }
 }
 
