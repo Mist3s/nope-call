@@ -5,16 +5,29 @@ import android.content.Context
 import android.os.UserManager
 import android.system.Os
 import android.util.Log
+import com.mist3s.nopecall.core.calllog.AndroidCallLogSource
+import com.mist3s.nopecall.core.calllog.CallLogSyncer
+import com.mist3s.nopecall.core.contacts.AndroidContactNumberSource
 import com.mist3s.nopecall.core.contacts.ContactIndex
+import com.mist3s.nopecall.core.contacts.ContactNumberSource
+import com.mist3s.nopecall.core.diag.DiagnosticsRepository
 import com.mist3s.nopecall.core.facts.CallFactsBuilder
 import com.mist3s.nopecall.core.facts.ContactMembership
 import com.mist3s.nopecall.core.facts.EmergencyNumbers
 import com.mist3s.nopecall.core.notify.BlockedCallNotifier
+import com.mist3s.nopecall.core.observe.AndroidNetworkContext
+import com.mist3s.nopecall.core.observe.DeviceContext
+import com.mist3s.nopecall.core.observe.LogExporter
+import com.mist3s.nopecall.core.observe.ObservationLog
+import com.mist3s.nopecall.core.observe.ObservationReporter
+import com.mist3s.nopecall.core.observe.ObservationStore
 import com.mist3s.nopecall.core.role.RoleController
 import com.mist3s.nopecall.core.snapshot.DirectorySync
 import com.mist3s.nopecall.core.snapshot.SnapshotStore
 import com.mist3s.nopecall.core.storage.EventRecorder
+import com.mist3s.nopecall.core.storage.JournalCsv
 import com.mist3s.nopecall.core.storage.JournalRepository
+import com.mist3s.nopecall.core.storage.RulesTransfer
 import com.mist3s.nopecall.core.storage.EventSpool
 import com.mist3s.nopecall.core.storage.NopeCallDatabase
 import com.mist3s.nopecall.core.storage.RulesRepository
@@ -63,6 +76,19 @@ public class NopeCallApp : Application() {
         // трогает диск и базу. Запускается на выделенном потоке, а не на пуле корутин,
         // чтобы не тянуть диспетчер ради двух операций при старте.
         Thread({ CoreGraph.runUnlockedTasks() }, "nope-call-init").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * Разрешения выданы уже после старта — перестроить то, что от них зависит.
+     *
+     * Индекс контактов и зеркало журнала строятся в фазе 2, а она к моменту выдачи разрешения
+     * давно прошла. Без этого вызова пользователь увидел бы разницу только после перезапуска
+     * приложения, то есть счёл бы, что доступ ничего не дал.
+     */
+    public fun refreshAfterPermissions() {
+        Thread({ CoreGraph.refreshPermissionDependent() }, "nope-call-perms")
+            .apply { isDaemon = true }
+            .start()
     }
 
     private companion object {
@@ -152,6 +178,64 @@ public object CoreGraph {
         EventSpool(File(deviceEncrypted.filesDir, "spool"))
     }
 
+    /**
+     * Настройки режима наблюдения в DE-хранилище.
+     *
+     * Не в Room: писатель работает и до первой разблокировки экрана, а до неё база недоступна.
+     * Room остаётся источником истины для интерфейса и зеркалит значения сюда.
+     */
+    public val observationStore: ObservationStore by lazy { ObservationStore(deviceEncrypted) }
+
+    /**
+     * Режим наблюдения (ТЗ §7.7). Логи лежат в DE-хранилище по той же причине: событие звонка
+     * должно записаться и до разблокировки, иначе самые интересные случаи не попадут в лог.
+     */
+    public val observation: ObservationLog by lazy {
+        val dir = File(deviceEncrypted.filesDir, "observe")
+        ObservationLog(
+            dir = dir,
+            configProvider = { observationStore.config() },
+            freeSpace = { dir.usableSpace },
+        )
+    }
+
+    /** Контекст сети для записи наблюдения. Собирается после ответа системе (ТЗ §7.7.1). */
+    internal val networkContext: AndroidNetworkContext by lazy {
+        AndroidNetworkContext(deviceEncrypted)
+    }
+
+    /** Контекст устройства. Один и тот же для всех записей процесса — считается один раз. */
+    public val deviceContext: DeviceContext by lazy {
+        DeviceContext(
+            manufacturer = android.os.Build.MANUFACTURER.orEmpty(),
+            model = android.os.Build.MODEL.orEmpty(),
+            androidRelease = android.os.Build.VERSION.RELEASE.orEmpty(),
+            sdkInt = android.os.Build.VERSION.SDK_INT,
+            buildFingerprint = android.os.Build.FINGERPRINT.orEmpty(),
+            appVersion = runCatching {
+                val pm = deviceEncrypted.packageManager
+                val info = pm.getPackageInfo(deviceEncrypted.packageName, 0)
+                "${info.versionName}+${info.longVersionCode}"
+            }.getOrDefault("unknown"),
+            installId = observationStore.installId(),
+        )
+    }
+
+    public val observationReporter: ObservationReporter
+        get() = ObservationReporter(database, observation)
+
+    /** Диагностика (ТЗ §9.7). Тестовый прогон идёт через настоящий снимок и настоящий движок. */
+    public val diagnostics: DiagnosticsRepository
+        get() = DiagnosticsRepository(database, snapshots, normalizer)
+
+    /**
+     * Выгрузка логов. Архив собирается в обычный (CE) кэш, а не в DE-хранилище: `FileProvider`
+     * умеет отдавать только пути обычного хранилища, а выгрузку всё равно запускает интерфейс,
+     * то есть экран уже разблокирован.
+     */
+    public val logExporter: LogExporter
+        get() = LogExporter(observation, File((credentialContext ?: deviceEncrypted).cacheDir, "logs"))
+
     @Volatile
     private var credentialContext: Context? = null
 
@@ -176,6 +260,39 @@ public object CoreGraph {
      */
     public val journal: JournalRepository
         get() = JournalRepository(database)
+
+    /**
+     * Синхронизация зеркала системного журнала. Требует `READ_CALL_LOG`; без него зеркало
+     * остаётся пустым, и раздел «Журнал» показывает только собственные проверки (ТЗ §7.2).
+     */
+    /**
+     * Номера телефонной книги для предпросмотра правила (ТЗ §18 п. 16).
+     *
+     * Отдельно от [contactIndex]: индекс хранит только усечённые хеши, и по хешам нельзя
+     * проверить правило «начинается с». Здесь книга читается разово, в момент показа
+     * предпросмотра, и нигде не сохраняется. Обращение к `ContentProvider` тут допустимо —
+     * это интерфейс, а не горячий путь.
+     */
+    public val contactNumbers: ContactNumberSource
+        get() = AndroidContactNumberSource(credentialContext ?: deviceEncrypted, normalizer)
+
+    /** Экспорт и импорт правил (ТЗ §15.8). Валидацию берёт из репозитория, а не дублирует. */
+    public val rulesTransfer: RulesTransfer
+        get() = RulesTransfer(rules, appVersion = deviceContext.appVersion)
+
+    /** Выгрузка журнала в CSV (ТЗ §7.6). */
+    public val journalCsv: JournalCsv
+        get() = JournalCsv(journal)
+
+    public val callLogSyncer: CallLogSyncer
+        get() = CallLogSyncer(
+            db = database,
+            source = AndroidCallLogSource(credentialContext ?: deviceEncrypted),
+            normalizer = normalizer,
+            onLateName = { occurredAt, digits, nameRaw, nameFold ->
+                observation.observeLateName(occurredAt, digits, nameRaw, nameFold)
+            },
+        )
 
     /** Когда сервис проверки вызывался последний раз. Нужно интерфейсу, чтобы отличить
      *  «роль выдана, но звонков не было» от «роль выдана, а сервис не вызывается» (ТЗ §4.4). */
@@ -219,6 +336,48 @@ public object CoreGraph {
     }
 
     /**
+     * Обслуживание журнала: ретеншен по сроку и по числу записей (ТЗ §7.6).
+     *
+     * Не чаще раза в сутки, метка хранится в настройках. Отдельного планировщика нет
+     * намеренно: WorkManager ради одного `DELETE` — лишняя зависимость в горячем модуле,
+     * а фаза 2 выполняется и при старте интерфейса, и после перезагрузки. Отступление
+     * зафиксировано в архитектуре §15.
+     */
+    private suspend fun housekeeping() {
+        val now = System.currentTimeMillis()
+        val last = rules.getSetting(RulesRepository.KEY_HOUSEKEEPING_AT)?.toLongOrNull() ?: 0L
+        if (now - last < HOUSEKEEPING_INTERVAL_MS) return
+
+        val days = rules.getSetting(RulesRepository.KEY_RETENTION_DAYS)?.toIntOrNull()
+            ?: JournalRepository.RETENTION_DAYS
+        val records = rules.getSetting(RulesRepository.KEY_RETENTION_RECORDS)?.toIntOrNull()
+            ?: JournalRepository.RETENTION_RECORDS
+
+        val removed = journal.applyRetention(now, keepDays = days, keepRecords = records)
+        rules.putInternal(RulesRepository.KEY_HOUSEKEEPING_AT, now.toString())
+        if (removed > 0) Log.d("NopeCallApp", "ретеншен журнала: удалено $removed")
+    }
+
+    private const val HOUSEKEEPING_INTERVAL_MS = 24L * 60 * 60 * 1000
+
+    /**
+     * Перестройка того, что зависит от необязательных разрешений. Идемпотентна и безопасна:
+     * без разрешения обе операции честно возвращают «нечего делать».
+     */
+    internal fun refreshPermissionDependent() {
+        runCatching {
+            kotlinx.coroutines.runBlocking {
+                val contacts = contactIndex.rebuild(deviceEncrypted)
+                if (contacts >= 0) Log.d("NopeCallApp", "контактов в индексе: $contacts")
+                val sync = callLogSyncer.sync()
+                if (sync.available) {
+                    Log.d("NopeCallApp", "зеркало после выдачи доступа: ${sync.fetched}")
+                }
+            }
+        }.onFailure { Log.w("NopeCallApp", "перестройка после разрешений не удалась", it) }
+    }
+
+    /**
      * Задачи фазы 2. Обе идемпотентны и обе могут упасть без последствий для проверки звонков:
      * снимок останется прежним, очередь дождётся следующего запуска.
      */
@@ -238,6 +397,19 @@ public object CoreGraph {
                 if (contacts >= 0) Log.d("NopeCallApp", "контактов в индексе: $contacts")
 
                 notifier.ensureChannels()
+
+                // Зеркало системного журнала: постоянная синхронизация, а не однократный
+                // импорт — система дописывает записи после звонка (ТЗ §7.2).
+                val sync = callLogSyncer.sync()
+                if (sync.available) {
+                    Log.d(
+                        "NopeCallApp",
+                        "зеркало: получено ${sync.fetched}, сшито ${sync.stitched}, " +
+                            "поздних имён ${sync.lateNames}",
+                    )
+                }
+
+                housekeeping()
 
                 // Роль могли отозвать, пока процесса не было: назначили другое приложение или
                 // прошивка сбросила. Отказ невидим — сервис просто перестаёт вызываться,

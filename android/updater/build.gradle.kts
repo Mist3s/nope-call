@@ -30,6 +30,10 @@ android {
 }
 
 dependencies {
+    // kotlin("test"), как в :engine и :core: у JUnit4 сообщение в assertEquals идёт ПЕРВЫМ
+    // аргументом, у kotlin.test — последним, и разный порядок в разных модулях это ловушка.
+    // JUnit4 остаётся только ради TemporaryFolder (см. CLAUDE.md §5).
+    testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
 }
 

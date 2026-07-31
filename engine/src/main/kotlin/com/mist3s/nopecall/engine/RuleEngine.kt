@@ -34,11 +34,29 @@ public data class TraceStep(
     val skippedReason: String? = null,
 )
 
-/** Трасса решения. Собирается только по запросу, в горячем пути не используется. */
-public class DecisionTrace {
+/**
+ * Трасса решения. Собирается только по запросу.
+ *
+ * Ограничена по числу шагов, потому что режим наблюдения запрашивает её на каждом звонке
+ * (ТЗ §7.7.1), а трасса собирается **внутри** прохода по правилам, то есть тратит бюджет
+ * решения. Пределом это превращается в фиксированную стоимость: при промахе по всем правилам
+ * их могут быть тысячи, и складывать в список каждое — плата за диагностику из бюджета звонка.
+ * Усечение видно флагом, а не молчит.
+ */
+public class DecisionTrace(private val limit: Int = Int.MAX_VALUE) {
     private val _steps = mutableListOf<TraceStep>()
     public val steps: List<TraceStep> get() = _steps
-    internal fun add(step: TraceStep) { _steps.add(step) }
+
+    public var truncated: Boolean = false
+        private set
+
+    internal fun add(step: TraceStep) {
+        if (_steps.size >= limit) {
+            truncated = true
+            return
+        }
+        _steps.add(step)
+    }
 
     public var facts: CallFacts? = null
         internal set

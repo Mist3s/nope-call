@@ -55,6 +55,51 @@ class _RulesScreenState extends State<RulesScreen> {
     });
   }
 
+  Future<void> _export() async {
+    final shared = await _repo.exportRules();
+    if (!mounted || shared) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Сохранять нечего: правил нет')),
+    );
+  }
+
+  /// Импорт с отчётом (ТЗ §15.8): показать, что добавилось, что пропущено и что отклонено.
+  /// Молча применить файл нельзя — пользователь должен видеть, во что превратился импорт.
+  Future<void> _import({required bool replaceAll}) async {
+    if (replaceAll) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Заменить все правила?'),
+          content: const Text(
+            'Текущие правила будут удалены, а вместо них появятся правила из файла. '
+            'Отменить будет нельзя.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Заменить'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+
+    final report = await _repo.importRules(replaceAll: replaceAll);
+    if (!mounted) return;
+    await _load();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _ImportReportDialog(report: report),
+    );
+  }
+
   Future<void> _openEditor([RuleDto? rule]) async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => RuleEditorScreen(rule: rule)),
@@ -65,12 +110,39 @@ class _RulesScreenState extends State<RulesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Правила')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openEditor,
-        icon: const Icon(Icons.add),
-        label: const Text('Правило'),
+      appBar: AppBar(
+        title: const Text('Правила'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Экспорт и импорт',
+            onSelected: (value) => switch (value) {
+              'export' => _export(),
+              'add' => _import(replaceAll: false),
+              _ => _import(replaceAll: true),
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: Text('Сохранить правила в файл'),
+              ),
+              PopupMenuItem(value: 'add', child: Text('Добавить из файла')),
+              PopupMenuItem(
+                value: 'replace',
+                child: Text('Заменить все из файла'),
+              ),
+            ],
+          ),
+        ],
       ),
+      // FAB скрыт, пока список пуст: там уже стоит кнопка «Создать правило», и два
+      // разных элемента для одного действия на одном экране читаются как недоделка.
+      floatingActionButton: (_state.data?.isEmpty ?? true)
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _openEditor,
+              icon: const Icon(Icons.add),
+              label: const Text('Правило'),
+            ),
       body: LoadableView<List<RuleDto>>(
         state: _state,
         onRetry: _load,
@@ -206,6 +278,73 @@ class _OrderHint extends StatelessWidget {
   }
 }
 
+/// Отчёт об импорте (ТЗ §15.8). Отклонённые показываются построчно с причиной: «файл
+/// импортирован» без объяснения, почему часть правил не появилась, — это не отчёт.
+class _ImportReportDialog extends StatelessWidget {
+  const _ImportReportDialog({required this.report});
+
+  final ImportReportDto report;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rejected = report.rejected.whereType<String>().toList();
+    final removed = report.removed.whereType<String>().toList();
+
+    return AlertDialog(
+      title: Text(report.ok ? 'Импорт завершён' : 'Импорт не выполнен'),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!report.ok)
+              Text(report.error ?? 'Файл не разобран')
+            else ...[
+              Text('Добавлено: ${report.added}'),
+              if (report.updated > 0) Text('Обновлено: ${report.updated}'),
+              if (report.duplicates > 0)
+                Text('Пропущено как дубликат: ${report.duplicates}'),
+              if (removed.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Удалено:', style: theme.textTheme.labelLarge),
+                for (final r in removed) Text('· $r'),
+              ],
+              if (rejected.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Отклонено:',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+                for (final r in rejected)
+                  Text('· $r', style: theme.textTheme.bodySmall),
+              ],
+              if (!report.snapshotRebuilt) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Внимание: действующая копия правил не пересобралась. Правила в списке '
+                  'новые, а решения по звонкам пока прежние — перезапустите приложение.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Понятно'),
+        ),
+      ],
+    );
+  }
+}
+
 class _RuleTile extends StatelessWidget {
   const _RuleTile({
     super.key,
@@ -236,6 +375,11 @@ class _RuleTile extends StatelessWidget {
       ),
       title: Text(
         rule.title,
+        // Одна строка с многоточием. Длинное название без пробелов — а такие создаёт
+        // карточка звонка — рвалось посередине слова, и строка выглядела как сломанная
+        // вёрстка. Полное название видно в редакторе.
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: rule.isEnabled
             ? null
             : TextStyle(
@@ -243,11 +387,17 @@ class _RuleTile extends StatelessWidget {
                 decoration: TextDecoration.lineThrough,
               ),
       ),
+      // Действие в подписи не повторяется: его показывает иконка слева. Раньше строка
+      // из четырёх частей не влезала, ломалась на висячем предлоге и «Отклонить»
+      // оказывалось на второй строке, где читалось как часть шаблона.
       subtitle: Text(
         '${Labels.target(rule.targetType)} · '
-        '${Labels.matchType(rule.matchType)} «${rule.pattern}» · '
-        '${Labels.action(rule.action)}'
+        // Неразрывный пробел склеивает предлог со шаблоном: иначе «с» и «на»
+        // остаются висеть в конце строки, а шаблон уезжает на следующую.
+        '${Labels.matchType(rule.matchType)} «${rule.pattern}»'
         '${rule.matchCount > 0 ? ' · сработало ${rule.matchCount}' : ''}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,

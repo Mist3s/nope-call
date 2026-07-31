@@ -80,17 +80,27 @@ class _CallCardScreenState extends State<CallCardScreen> {
                   ),
                   const SizedBox(height: 12),
                   _Field('Когда', formatTime(item.occurredAt)),
+                  _Field('Тип записи', Labels.kind(item.kind)),
                   if (item.nameRaw?.isNotEmpty == true)
                     _Field('Подпись', item.nameRaw!),
                   _Field(
                     'Название получено',
                     _nameSourceLabel(item.nameSource),
                   ),
-                  _Field('Результат', Labels.action(item.action)),
-                  _Field('Причина', Labels.reason(item.reason)),
+                  // Решения может не быть вовсе: запись пришла из системного журнала,
+                  // а звонок проверяли не мы. Придумывать результат в этом случае нельзя.
+                  if (item.action != null)
+                    _Field('Результат', Labels.action(item.action!))
+                  else
+                    _Field('Результат', 'приложение этот звонок не проверяло'),
+                  if (item.reason != null)
+                    _Field('Причина', Labels.reason(item.reason!)),
                   if (item.matchedRuleTitle != null)
                     _Field('Правило', item.matchedRuleTitle!),
-                  _Field('Решение заняло', '${item.latencyMs} мс'),
+                  if (item.durationSeconds != null)
+                    _Field('Длительность', '${item.durationSeconds} с'),
+                  if (item.latencyMs != null)
+                    _Field('Решение заняло', '${item.latencyMs} мс'),
                 ],
               ),
             ),
@@ -295,14 +305,12 @@ class _SuggestionTileState extends State<_SuggestionTile> {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  preview.count == 0
-                      ? 'В журнале пока нет других таких звонков'
-                      : 'Подходит под ${preview.truncated ? '≥ ' : ''}'
-                            '${preview.count} записей журнала',
+                  previewText(preview),
+                  // Не цветом ошибки: это не ошибка, а справка о том, скольких записей
+                  // правило коснётся. Красный в этом экране означает «блокирует».
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: preview.count > 1
-                        ? theme.colorScheme.error
-                        : theme.colorScheme.onSurfaceVariant,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: preview.count > 1 ? FontWeight.w600 : null,
                   ),
                 ),
               ),
@@ -365,8 +373,10 @@ class _Field extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 150,
+          // Доли, а не фиксированные 150: значением здесь бывает название правила,
+          // и в узкой колонке оно рвалось посередине слова.
+          Expanded(
+            flex: 2,
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -374,7 +384,11 @@ class _Field extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 3,
+            child: Text(value, style: theme.textTheme.bodyMedium),
+          ),
         ],
       ),
     );

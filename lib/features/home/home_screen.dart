@@ -59,12 +59,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 16),
                 _StatsRow(status: status, summary: summary),
                 const SizedBox(height: 16),
-                if (status.problems.isNotEmpty)
+                // Отступ внутри условия, а не рядом с ним: без карточки проблем два
+                // соседних SizedBox складывались в двойной промежуток, и карточки
+                // на главном экране стояли с разным шагом.
+                if (status.problems.isNotEmpty) ...[
                   _ProblemsCard(
                     problems: status.problems,
                     onOpenSettings: _repo.openAppSettings,
                   ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
+                ],
                 _SignatureCard(summary: summary),
               ],
             );
@@ -128,12 +132,20 @@ class _StatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              active
-                  ? 'Звонок отклоняется, только если совпало ваше правило. '
-                        'Во всех остальных случаях звонок проходит.'
-                  : _explain(status),
+              active ? _describe(status) : _explain(status),
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            if (active && status.defaultAction != 'ALLOW') ...[
+              const SizedBox(height: 8),
+              Text(
+                'Это обратный порядок: приложение задумано блокировать только при '
+                'совпадении правила. Проверьте раздел «Когда правило не совпало» '
+                'в настройках.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.error),
+              ),
+            ],
             if (!status.hasRole) ...[
               const SizedBox(height: 16),
               FilledButton.icon(
@@ -146,6 +158,28 @@ class _StatusCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Что произойдёт со звонком — по фактической настройке, а не по замыслу.
+  ///
+  /// Обещание на главном экране обязано совпадать с поведением. Пока действие
+  /// по умолчанию `ALLOW`, верно «остальные проходят»; если пользователь переключил его
+  /// на блокировку, та же фраза становится прямой неправдой — а это главный экран
+  /// приложения, которое обещает объяснимость.
+  String _describe(SetupStatus status) {
+    if (status.defaultAction == 'ALLOW') {
+      return 'Звонок отклоняется, только если совпало ваше правило. '
+          'Во всех остальных случаях звонок проходит.';
+    }
+    final what = switch (status.defaultAction) {
+      'REJECT' => 'отклоняется',
+      'DROP' => 'сбрасывается без гудка',
+      'SILENCE' => 'проходит без звука',
+      _ => 'обрабатывается по настройке',
+    };
+    return 'Проходят только звонки, которые разрешило ваше правило: всё остальное '
+        '$what. Так задано действием по умолчанию. '
+        'Сбой, таймаут или недоступные правила по-прежнему пропускают звонок.';
   }
 
   String _explain(SetupStatus status) {
@@ -186,13 +220,13 @@ class _StatsRow extends StatelessWidget {
               value: '${summary.blockedToday}',
               highlight: summary.blockedToday > 0,
             ),
-            const Divider(height: 1, indent: 56),
+            const Divider(height: 1),
             _StatRow(
               icon: Icons.rule,
               label: 'Активных правил',
               value: '${status.enabledRuleCount}',
             ),
-            const Divider(height: 1, indent: 56),
+            const Divider(height: 1),
             _StatRow(
               icon: Icons.fact_check_outlined,
               label: 'Проверок всего',
@@ -241,7 +275,7 @@ class _StatRow extends StatelessWidget {
             value,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w600,
-              color: highlight ? scheme.error : scheme.onSurface,
+              color: scheme.onSurface,
               // Табличные цифры: значения в столбце не «дёргаются» по ширине.
               fontFeatures: const [FontFeature.tabularFigures()],
             ),

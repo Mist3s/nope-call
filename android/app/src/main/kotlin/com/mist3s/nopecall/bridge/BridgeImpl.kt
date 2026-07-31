@@ -5,9 +5,19 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import com.mist3s.nopecall.core.CoreGraph
+import com.mist3s.nopecall.core.observe.LogExporter
+import com.mist3s.nopecall.core.observe.ObservationConfig
 import com.mist3s.nopecall.core.role.RoleController
+import com.mist3s.nopecall.core.storage.JournalCursor
+import com.mist3s.nopecall.core.storage.JournalFilter
+import com.mist3s.nopecall.core.storage.ImportMode
+import com.mist3s.nopecall.core.storage.ImportResult
 import com.mist3s.nopecall.core.storage.RulesRepository
 import com.mist3s.nopecall.core.storage.SaveResult
+import com.mist3s.nopecall.updater.InstallResult
+import com.mist3s.nopecall.updater.UpdateCheckResult
+import com.mist3s.nopecall.updater.UpdateManager
+import com.mist3s.nopecall.updater.Updater
 import com.mist3s.nopecall.engine.CallAction
 import com.mist3s.nopecall.engine.MatchType
 import com.mist3s.nopecall.engine.PatternCheck
@@ -46,6 +56,12 @@ internal class StatusApiImpl(
         val blockingEnabled = runCatchingBlocking {
             CoreGraph.rules.getSetting(RulesRepository.KEY_BLOCKING_ENABLED)?.toBooleanStrictOrNull()
         } ?: true
+        // Действие по умолчанию нужно интерфейсу не как настройка, а как обещание:
+        // главный экран не имеет права говорить «остальные звонки проходят», если
+        // пользователь переключил его на блокировку.
+        val defaultAction = runCatchingBlocking {
+            CoreGraph.rules.getSetting(RulesRepository.KEY_DEFAULT_ACTION)
+        } ?: "ALLOW"
         runCatchingBlocking { CoreGraph.drainPending() }
         val ruleCount = runCatchingBlocking { CoreGraph.rules.enabledCount() } ?: 0
         val lastScreening = runCatchingBlocking { CoreGraph.lastScreeningAt() }
@@ -60,6 +76,7 @@ internal class StatusApiImpl(
             blockingActive = state.blockingActive,
             enabledRuleCount = state.enabledRuleCount.toLong(),
             problems = state.problems.map { it.name },
+            defaultAction = defaultAction ?: "ALLOW",
             lastScreeningAt = state.lastScreeningAt,
         )
     }
@@ -77,6 +94,35 @@ internal class StatusApiImpl(
             return
         }
         activity.startActivityForResult(intent, RoleController.REQUEST_CODE)
+        callback(Result.success(true))
+    }
+
+    /**
+     * Запрос необязательных разрешений одним диалогом.
+     *
+     * Возвращает `true`, если диалог показан, а не «разрешения выданы»: результат приходит
+     * в `onRequestPermissionsResult`, а интерфейс всё равно перечитывает состояние сам —
+     * разрешение могли отозвать и мимо приложения.
+     */
+    override fun requestPermissions(callback: (Result<Boolean>) -> Unit) {
+        val activity = activityProvider()
+        if (activity == null) {
+            callback(Result.success(false))
+            return
+        }
+        val wanted = buildList {
+            add(android.Manifest.permission.READ_CALL_LOG)
+            add(android.Manifest.permission.READ_CONTACTS)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                add(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.filterNot { RoleController(activity).hasPermission(it) }
+
+        if (wanted.isEmpty()) {
+            callback(Result.success(false))
+            return
+        }
+        activity.requestPermissions(wanted.toTypedArray(), PERMISSIONS_REQUEST_CODE)
         callback(Result.success(true))
     }
 
@@ -98,6 +144,7 @@ internal class StatusApiImpl(
         blockingActive = false,
         enabledRuleCount = 0,
         problems = listOf("NO_ROLE"),
+        defaultAction = "ALLOW",
         lastScreeningAt = null,
     )
 
@@ -106,9 +153,17 @@ internal class StatusApiImpl(
     } catch (_: Throwable) {
         null
     }
+
+    internal companion object {
+        const val PERMISSIONS_REQUEST_CODE: Int = 4292
+    }
 }
 
-internal class RulesApiImpl(private val bridge: BridgeScope) : RulesApi {
+internal class RulesApiImpl(
+    private val bridge: BridgeScope,
+    /** Нужен для экспорта и импорта: и то и другое идёт через системные диалоги (ТЗ §15.8). */
+    private val activityProvider: () -> Activity?,
+) : RulesApi {
 
     override fun list(callback: (Result<List<RuleDto>>) -> Unit) {
         bridge.scope.launch {
@@ -238,31 +293,192 @@ internal class RulesApiImpl(private val bridge: BridgeScope) : RulesApi {
     ) {
         bridge.scope.launch {
             val result = runCatching {
-                val target = enumOf<RuleTarget>(targetType) ?: return@runCatching PreviewDto(0, false)
-                val match = enumOf<MatchType>(matchType) ?: return@runCatching PreviewDto(0, false)
+                val target = enumOf<RuleTarget>(targetType) ?: return@runCatching emptyPreview()
+                val match = enumOf<MatchType>(matchType) ?: return@runCatching emptyPreview()
                 val check = CoreGraph.rules.validate(target, match, pattern)
                 val canonical = (check as? PatternCheck.Ok)?.canonical
-                    ?: return@runCatching PreviewDto(0, false)
+                    ?: return@runCatching emptyPreview()
 
-                val preview = CoreGraph.journal.previewMatches(targetType, matchType, canonical)
-                PreviewDto(preview.count.toLong(), preview.truncated)
+                val preview = CoreGraph.journal.previewMatches(
+                    target = targetType,
+                    matchType = matchType,
+                    canonicalPattern = canonical,
+                    // Книга читается здесь, а не в горячем пути: предпросмотр рисуется
+                    // в редакторе, и обращение к ContentProvider тут допустимо (ТЗ §18 п. 16).
+                    contacts = CoreGraph.contactNumbers,
+                )
+                PreviewDto(
+                    count = preview.count.toLong(),
+                    truncated = preview.truncated,
+                    contactsTruncated = preview.contactsTruncated,
+                    allowRulesCovered = preview.allowRulesCovered?.toLong(),
+                    contactsCovered = preview.contactsCovered?.toLong(),
+                )
             }
             callback(result)
         }
     }
+
+    /** Пустой предпросмотр: шаблон ещё не разобрался, считать нечего. */
+    private fun emptyPreview() = PreviewDto(
+        count = 0,
+        truncated = false,
+        contactsTruncated = false,
+        allowRulesCovered = null,
+        contactsCovered = null,
+    )
+
+    /**
+     * Экспорт правил (ТЗ §15.8): файл собирается в кэш и отдаётся через системный выбор.
+     *
+     * Тем же путём, что архив логов: `FileProvider` и `ACTION_SEND`. Приложение само никуда
+     * ничего не отправляет — куда именно уйдёт файл, решает пользователь.
+     */
+    override fun exportRules(callback: (Result<Boolean>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val json = CoreGraph.rulesTransfer.exportJson()
+                val activity = activityProvider() ?: return@runCatching false
+                val dir = java.io.File(activity.cacheDir, "logs").apply { mkdirs() }
+                val file = java.io.File(dir, "nope-call-rules.json")
+                file.writeText(json)
+
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.logs",
+                    file,
+                )
+                activity.startActivity(
+                    Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = "application/json"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_SUBJECT, file.name)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        },
+                        "Сохранить правила",
+                    )
+                )
+                true
+            }
+            callback(result)
+        }
+    }
+
+    /**
+     * Импорт правил (ТЗ §15.8).
+     *
+     * Ответ приходит **после** выбора файла: обратный вызов Pigeon сохраняется, открывается
+     * системный выбор документа, и вызов завершается уже в `onActivityResult`. Отмена — это
+     * тоже ответ: молча оставить интерфейс в ожидании нельзя.
+     */
+    override fun importRules(replaceAll: Boolean, callback: (Result<ImportReportDto>) -> Unit) {
+        val activity = activityProvider()
+        if (activity == null) {
+            callback(Result.success(cancelledImport("приложение не на переднем плане")))
+            return
+        }
+        pendingImport = PendingImport(replaceAll, callback)
+        runCatching {
+            activity.startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    // Не только application/json: файловые менеджеры и облака отдают
+                    // выгруженный файл с самыми разными типами, вплоть до octet-stream.
+                    type = "*/*"
+                },
+                IMPORT_REQUEST_CODE,
+            )
+        }.onFailure {
+            pendingImport = null
+            callback(Result.success(cancelledImport("на устройстве нет выбора файлов")))
+        }
+    }
+
+    /** Вызывается хостом из `onActivityResult`: только он знает про результат выбора. */
+    internal fun onImportPicked(uri: Uri?) {
+        val pending = pendingImport ?: return
+        pendingImport = null
+        if (uri == null) {
+            pending.callback(Result.success(cancelledImport("отменено")))
+            return
+        }
+        bridge.scope.launch {
+            val result = runCatching {
+                val activity = activityProvider()
+                val text = activity?.contentResolver?.openInputStream(uri)?.use {
+                    it.readBytes().decodeToString()
+                }
+                if (text == null) {
+                    cancelledImport("файл не удалось прочитать")
+                } else {
+                    val mode = if (pending.replaceAll) {
+                        ImportMode.REPLACE_ALL
+                    } else {
+                        ImportMode.ADD_MISSING
+                    }
+                    when (val imported = CoreGraph.rulesTransfer.importJson(text, mode)) {
+                        is ImportResult.Done -> ImportReportDto(
+                            ok = true,
+                            added = imported.report.added.toLong(),
+                            updated = imported.report.updated.toLong(),
+                            duplicates = imported.report.duplicates.toLong(),
+                            removed = imported.report.removed,
+                            rejected = imported.report.rejected.map {
+                                "строка ${it.index + 1}" +
+                                    (it.title?.let { t -> " «$t»" } ?: "") +
+                                    ": ${it.reason}"
+                            },
+                            snapshotRebuilt = imported.report.snapshotRebuilt,
+                            error = null,
+                        )
+
+                        is ImportResult.Failed -> cancelledImport(imported.reason)
+                    }
+                }
+            }
+            pending.callback(result)
+        }
+    }
+
+    private fun cancelledImport(reason: String) = ImportReportDto(
+        ok = false,
+        added = 0,
+        updated = 0,
+        duplicates = 0,
+        removed = emptyList(),
+        rejected = emptyList(),
+        snapshotRebuilt = false,
+        error = reason,
+    )
+
+    private class PendingImport(
+        val replaceAll: Boolean,
+        val callback: (Result<ImportReportDto>) -> Unit,
+    )
+
+    private var pendingImport: PendingImport? = null
 
     private fun rejected(reason: String) =
         SaveRuleResult(saved = false, id = 0, variants = emptyList(), variantsTruncated = false, error = reason)
 
     private inline fun <reified T : Enum<T>> enumOf(name: String): T? =
         enumValues<T>().firstOrNull { it.name == name }
+
+    internal companion object {
+        const val IMPORT_REQUEST_CODE: Int = 4293
+    }
 }
 
-internal class JournalApiImpl(private val bridge: BridgeScope) : JournalApi {
+internal class JournalApiImpl(
+    private val bridge: BridgeScope,
+    /** Нужен для выгрузки CSV: файл отдаётся через системный выбор приложения (ТЗ §7.6). */
+    private val activityProvider: () -> Activity?,
+) : JournalApi {
 
     override fun page(
-        beforeTime: Long?,
-        beforeId: Long?,
+        filter: JournalFilterDto,
+        cursor: JournalCursorDto?,
         limit: Long,
         callback: (Result<JournalPageDto>) -> Unit,
     ) {
@@ -271,28 +487,50 @@ internal class JournalApiImpl(private val bridge: BridgeScope) : JournalApi {
                 // Сначала переносим события из очереди: иначе только что заблокированный
                 // звонок не появился бы в журнале до перезапуска приложения.
                 CoreGraph.drainPending()
-                val page = CoreGraph.journal.page(beforeTime, beforeId, limit.toInt())
+                val page = CoreGraph.journal.page(
+                    cursor = cursor?.let {
+                        JournalCursor(it.at, it.sourceRank.toInt(), it.id)
+                    },
+                    filter = JournalFilter(
+                        kind = filter.kind,
+                        digitsQuery = filter.digitsQuery,
+                        nameQuery = filter.nameQuery,
+                        hadSignature = filter.hadSignature,
+                        fromAt = filter.fromAt,
+                        toAt = filter.toAt,
+                        ruleId = filter.ruleId,
+                        sim = filter.sim,
+                    ),
+                    limit = limit.toInt(),
+                )
                 JournalPageDto(
                     items = page.items.map { item ->
                         JournalItemDto(
                             id = item.id,
+                            sourceRank = item.sourceRank.toLong(),
                             occurredAt = item.occurredAt,
+                            kind = item.kind,
                             rawNumber = item.rawNumber,
                             nameSource = item.nameSource,
-                            action = item.action,
-                            reason = item.reason,
-                            latencyMs = item.latencyMs.toLong(),
                             blockedByUs = item.blockedByUs,
                             hadSignature = item.hadSignature,
+                            action = item.action,
+                            reason = item.reason,
+                            latencyMs = item.latencyMs?.toLong(),
+                            durationSeconds = item.durationSeconds?.toLong(),
                             e164 = item.e164,
                             nameRaw = item.nameRaw,
                             matchedRuleId = item.matchedRuleId,
                             matchedRuleTitle = item.matchedRuleTitle,
+                            eventId = item.eventId,
+                            systemId = item.systemId,
+                            phoneAccountId = item.phoneAccountId,
                         )
                     },
                     hasMore = page.hasMore,
-                    nextBeforeTime = page.nextBeforeTime,
-                    nextBeforeId = page.nextBeforeId,
+                    next = page.next?.let {
+                        JournalCursorDto(at = it.at, sourceRank = it.sourceRank.toLong(), id = it.id)
+                    },
                 )
             }
             callback(result)
@@ -309,11 +547,502 @@ internal class JournalApiImpl(private val bridge: BridgeScope) : JournalApi {
                     totalEvents = s.totalEvents.toLong(),
                     withSignatureLast100 = s.withSignatureLast100.toLong(),
                     checkedLast100 = s.checkedLast100.toLong(),
+                    mirrorRecords = s.mirrorRecords.toLong(),
                     lastEventAt = s.lastEventAt,
                 )
             }
             callback(result)
         }
+    }
+
+    override fun sims(callback: (Result<List<String>>) -> Unit) {
+        bridge.scope.launch { callback(runCatching { CoreGraph.journal.sims() }) }
+    }
+
+    override fun hide(systemId: Long, callback: (Result<Unit>) -> Unit) {
+        bridge.scope.launch { callback(runCatching { CoreGraph.journal.hide(systemId) }) }
+    }
+
+    override fun clear(callback: (Result<Long>) -> Unit) {
+        bridge.scope.launch { callback(runCatching { CoreGraph.journal.clear().toLong() }) }
+    }
+
+    /**
+     * Выгрузка журнала в CSV (ТЗ §7.6) и передача файла наружу.
+     *
+     * Пишется потоково в файл в кэше, а не собирается в память: журнал бывает на десятки
+     * тысяч записей. Отдаётся тем же путём, что архив логов, — через `FileProvider`.
+     */
+    override fun exportCsv(fromAt: Long?, toAt: Long?, callback: (Result<Long>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                CoreGraph.drainPending()
+                val activity = activityProvider() ?: return@runCatching 0L
+                val dir = java.io.File(activity.cacheDir, "logs").apply { mkdirs() }
+                val file = java.io.File(dir, "nope-call-journal.csv")
+
+                val rows = file.outputStream().use { out ->
+                    CoreGraph.journalCsv.writeTo(
+                        out = out,
+                        filter = JournalFilter(fromAt = fromAt, toAt = toAt),
+                    )
+                }
+                if (rows == 0) {
+                    file.delete()
+                    return@runCatching 0L
+                }
+
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.logs",
+                    file,
+                )
+                activity.startActivity(
+                    Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_SUBJECT, file.name)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        },
+                        "Сохранить журнал",
+                    )
+                )
+                rows.toLong()
+            }
+            callback(result)
+        }
+    }
+
+    override fun syncCallLog(callback: (Result<SyncResultDto>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val sync = CoreGraph.callLogSyncer.sync()
+                SyncResultDto(
+                    available = sync.available,
+                    fetched = sync.fetched.toLong(),
+                    stitched = sync.stitched.toLong(),
+                    lateNames = sync.lateNames.toLong(),
+                )
+            }
+            callback(result)
+        }
+    }
+}
+
+/**
+ * Режим наблюдения (ТЗ §7.7).
+ *
+ * Настройки живут в двух местах сознательно: источник истины — Room, но писатель обращается
+ * к DE-хранилищу, потому что работает и до первой разблокировки экрана. Поэтому каждое
+ * изменение зеркалится, а не читается из Room на месте.
+ */
+internal class ObservationApiImpl(
+    private val bridge: BridgeScope,
+    private val activityProvider: () -> Activity?,
+) : ObservationApi {
+
+    override fun status(callback: (Result<ObservationStatusDto>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val config = CoreGraph.observationStore.config()
+                val stats = CoreGraph.observation.stats()
+                ObservationStatusDto(
+                    enabled = config.enabled,
+                    techEnabled = config.techEnabled,
+                    techVerbose = config.techVerbose,
+                    callsRetentionDays = config.callsRetentionDays.toLong(),
+                    callsMaxMb = config.callsMaxMb.toLong(),
+                    techRetentionDays = config.techRetentionDays.toLong(),
+                    techMaxMb = config.techMaxMb.toLong(),
+                    maskByDefault = config.maskByDefault,
+                    callsBytes = stats.callsBytes,
+                    techBytes = stats.techBytes,
+                    dailyBytesEstimate = stats.dailyBytesEstimate,
+                    droppedTechLines = CoreGraph.observation.droppedTechLines(),
+                    installId = CoreGraph.observationStore.installId(),
+                    oldestAt = stats.oldestAt,
+                )
+            }
+            callback(result)
+        }
+    }
+
+    override fun report(periodDays: Long, callback: (Result<ObservationReportDto>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                // Сводка считается по журналу — значит очередь событий надо сначала слить,
+                // иначе только что заблокированный звонок в неё не попадёт.
+                CoreGraph.drainPending()
+                val report = CoreGraph.observationReporter.report(periodDays.toInt())
+                ObservationReportDto(
+                    periodDays = report.periodDays.toLong(),
+                    checks = report.checks.toLong(),
+                    withSignature = report.withSignature.toLong(),
+                    withoutName = report.withoutName.toLong(),
+                    lateNames = report.lateNames.toLong(),
+                    hiddenNumbers = report.hiddenNumbers.toLong(),
+                    coldStarts = report.coldStarts.toLong(),
+                    watchdogFired = report.watchdogFired.toLong(),
+                    latencyP50 = report.latencyP50.toLong(),
+                    latencyP95 = report.latencyP95.toLong(),
+                    latencyMax = report.latencyMax.toLong(),
+                    nameSources = report.nameSources.map { BucketDto(it.bucket, it.total.toLong()) },
+                    networkTypes = report.networkTypes.map { BucketDto(it.bucket, it.total.toLong()) },
+                    volte = report.volte.map { BucketDto(it.bucket, it.total.toLong()) },
+                    extrasKeys = report.extrasKeys.map { BucketDto(it.bucket, it.total.toLong()) },
+                    signatures = report.signatures.map {
+                        SignatureDto(
+                            raw = it.raw,
+                            total = it.total.toLong(),
+                            lastAt = it.lastAt,
+                            fold = it.fold,
+                        )
+                    },
+                )
+            }
+            callback(result)
+        }
+    }
+
+    override fun setConfig(
+        enabled: Boolean,
+        techEnabled: Boolean,
+        techVerbose: Boolean,
+        callsRetentionDays: Long,
+        callsMaxMb: Long,
+        techRetentionDays: Long,
+        techMaxMb: Long,
+        maskByDefault: Boolean,
+        callback: (Result<Unit>) -> Unit,
+    ) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val config = ObservationConfig(
+                    enabled = enabled,
+                    techEnabled = techEnabled,
+                    techVerbose = techVerbose,
+                    callsRetentionDays = callsRetentionDays.toInt(),
+                    callsMaxMb = callsMaxMb.toInt(),
+                    techRetentionDays = techRetentionDays.toInt(),
+                    techMaxMb = techMaxMb.toInt(),
+                    maskByDefault = maskByDefault,
+                )
+                // Сначала в DE-хранилище — им пользуется писатель, и он должен увидеть
+                // новое значение немедленно, даже если Room недоступен.
+                CoreGraph.observationStore.save(config)
+                config.toMap().forEach { (key, value) -> CoreGraph.rules.putInternal(key, value) }
+            }
+            callback(result)
+        }
+    }
+
+    override fun estimate(fromAt: Long, toAt: Long, callback: (Result<ExportEstimateDto>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val estimate = CoreGraph.logExporter.estimate(fromAt, toAt)
+                ExportEstimateDto(
+                    callLines = estimate.callLines.toLong(),
+                    archiveBytes = estimate.archiveBytesEstimate,
+                )
+            }
+            callback(result)
+        }
+    }
+
+    override fun share(
+        fromAt: Long,
+        toAt: Long,
+        mask: Boolean,
+        periodLabel: String,
+        callback: (Result<Boolean>) -> Unit,
+    ) {
+        bridge.scope.launch {
+            val result = runCatching {
+                CoreGraph.drainPending()
+                val report = CoreGraph.observationReporter.report(REPORT_PERIOD_DAYS)
+                val config = CoreGraph.observationStore.config()
+                val exported = CoreGraph.logExporter.export(
+                    LogExporter.Request(
+                        fromAt = fromAt,
+                        toAt = toAt,
+                        mask = mask,
+                        installId = CoreGraph.observationStore.installId(),
+                        periodLabel = periodLabel,
+                        config = config,
+                        summary = report.toText(),
+                        manifestExtra = mapOf(
+                            "model" to CoreGraph.deviceContext.model,
+                            "manufacturer" to CoreGraph.deviceContext.manufacturer,
+                            "android" to CoreGraph.deviceContext.androidRelease,
+                            "app" to CoreGraph.deviceContext.appVersion,
+                            "operator" to report.networkTypes.joinToString(",") { it.bucket },
+                        ),
+                    )
+                )
+
+                val activity = activityProvider() ?: return@runCatching false
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.logs",
+                    exported.file,
+                )
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, exported.file.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                // Выбор приложения делает пользователь: отправить логи само приложение
+                // не может и не должно (ТЗ §7.7.3 п. 4).
+                activity.startActivity(Intent.createChooser(send, "Отправить логи"))
+                true
+            }
+            callback(result)
+        }
+    }
+
+    override fun deleteLogs(callback: (Result<Long>) -> Unit) {
+        bridge.scope.launch {
+            callback(runCatching { CoreGraph.observation.deleteAll().toLong() })
+        }
+    }
+
+    private companion object {
+        /** Период сводки, попадающей в архив. Тот же, что по умолчанию на экране режима. */
+        const val REPORT_PERIOD_DAYS = 30
+    }
+}
+
+/**
+ * Диагностика (ТЗ §9.7).
+ *
+ * Отчёт собирается целиком на стороне Kotlin, включая готовый текст для копирования: собирать
+ * его в Dart значило бы держать в интерфейсе вторую версию того, что считается важным, и она
+ * начала бы расходиться с первой.
+ */
+internal class DiagnosticsApiImpl(
+    private val bridge: BridgeScope,
+    private val activityProvider: () -> Activity?,
+) : DiagnosticsApi {
+
+    override fun report(callback: (Result<DiagnosticsDto>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                CoreGraph.drainPending()
+                val report = CoreGraph.diagnostics.report()
+                val context = activityProvider() ?: CoreGraph.deviceEncrypted
+                val role = RoleController(context)
+                val device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
+                    "Android ${android.os.Build.VERSION.RELEASE} (${android.os.Build.VERSION.SDK_INT}), " +
+                    "прошивка ${android.os.Build.DISPLAY}"
+
+                val permissions = listOfNotNull(
+                    "журнал звонков: ${yesNo(role.hasPermission(android.Manifest.permission.READ_CALL_LOG))}",
+                    "контакты: ${yesNo(role.hasPermission(android.Manifest.permission.READ_CONTACTS))}",
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        "уведомления: ${yesNo(role.hasPermission(android.Manifest.permission.POST_NOTIFICATIONS))}"
+                    } else {
+                        null
+                    },
+                ).joinToString(", ")
+
+                DiagnosticsDto(
+                    checksLast7Days = report.checksLast7Days.toLong(),
+                    latencyP50 = report.latencyP50.toLong(),
+                    latencyP95 = report.latencyP95.toLong(),
+                    latencyMax = report.latencyMax.toLong(),
+                    degradedCounts = report.degradedCounts.map { BucketDto(it.bucket, it.total.toLong()) },
+                    ruleErrors = report.ruleErrors.map {
+                        RuleErrorDto(it.title, it.errorCount.toLong(), it.lastError)
+                    },
+                    lastEvents = report.lastEvents.map {
+                        EventLineDto(
+                            occurredAt = it.occurredAt,
+                            number = it.number,
+                            action = it.action,
+                            reason = it.reason,
+                            latencyMs = it.latencyMs.toLong(),
+                            coldStart = it.coldStart,
+                        )
+                    },
+                    nameSources = report.nameSources.map { BucketDto(it.bucket, it.total.toLong()) },
+                    withSignatureLast100 = report.withSignatureLast100.toLong(),
+                    checkedLast100 = report.checkedLast100.toLong(),
+                    volte = report.volte.map { BucketDto(it.bucket, it.total.toLong()) },
+                    signatureLooksUnavailable = report.signatureLooksUnavailable,
+                    device = device,
+                    reportText = report.toText(
+                        device = device,
+                        role = yesNo(role.hasRole()),
+                        permissions = permissions,
+                    ),
+                    snapshotFormatVersion = report.snapshotFormatVersion?.toLong(),
+                    snapshotCanonVersion = report.snapshotCanonVersion?.toLong(),
+                    snapshotRuleCount = report.snapshotRuleCount?.toLong(),
+                    snapshotBuiltAt = report.snapshotBuiltAt,
+                    snapshotError = report.snapshotError,
+                    batteryUnrestricted = batteryUnrestricted(context),
+                )
+            }
+            callback(result)
+        }
+    }
+
+    override fun testRun(number: String, name: String?, callback: (Result<TestRunDto>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val run = CoreGraph.diagnostics.testRun(number, name)
+                TestRunDto(
+                    digits = run.digits,
+                    candidates = run.candidates,
+                    nameNorm = run.nameNorm,
+                    nameFold = run.nameFold,
+                    orgFold = run.orgFold,
+                    action = run.action,
+                    reason = run.reason,
+                    elapsedMicros = run.elapsedMicros,
+                    steps = run.steps.map {
+                        TraceStepDto(
+                            ruleId = it.ruleId,
+                            title = it.title,
+                            target = it.target,
+                            matchType = it.matchType,
+                            canonical = it.canonical,
+                            matched = it.matched,
+                            skippedReason = it.skippedReason,
+                        )
+                    },
+                    snapshotMissing = run.snapshotMissing,
+                    e164 = run.e164,
+                    categoryFold = run.categoryFold,
+                    matchedRuleId = run.matchedRuleId,
+                    matchedRuleTitle = run.matchedRuleTitle,
+                )
+            }
+            callback(result)
+        }
+    }
+
+    override fun openBatterySettings() {
+        val activity = activityProvider() ?: return
+        // Сначала общий экран оптимизации батареи, а не запрос исключения для себя: запрос
+        // исключения без явного повода — путь к отклонению приложения и к раздражению.
+        runCatching {
+            activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }.onFailure {
+            activity.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", activity.packageName, null)
+                }
+            )
+        }
+    }
+
+    private fun yesNo(value: Boolean) = if (value) "есть" else "нет"
+
+    private fun batteryUnrestricted(context: android.content.Context): Boolean? = runCatching {
+        context.getSystemService(android.os.PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(context.packageName)
+    }.getOrNull()
+}
+
+/**
+ * Обновление приложения (ТЗ §15.5).
+ *
+ * Живёт в мосте, а не в `:core`: модуль обновления — единственный с сетью, и у него нет доступа
+ * ни к правилам, ни к журналу. Здесь только перевод результатов в контракт интерфейса.
+ *
+ * Ошибки возвращаются значением и **никогда** не показываются всплывающим окном: автопроверка
+ * при запуске обязана быть тихой, а статус виден только на своём экране (ТЗ §15.5).
+ */
+internal class UpdaterApiImpl(
+    private val bridge: BridgeScope,
+    private val activityProvider: () -> Activity?,
+) : UpdaterApi {
+
+    override fun check(
+        allowPrerelease: Boolean,
+        silent: Boolean,
+        callback: (Result<UpdateStatusDto>) -> Unit,
+    ) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val manager = manager() ?: return@runCatching failure("нет контекста приложения")
+                when (val checked = manager.check(allowPrerelease)) {
+                    is UpdateCheckResult.Available -> UpdateStatusDto(
+                        state = "AVAILABLE",
+                        currentVersion = currentVersion(),
+                        version = checked.manifest.version,
+                        build = checked.manifest.build.toLong(),
+                        notesUrl = checked.manifest.notesUrl,
+                        error = null,
+                        sizeBytes = checked.asset.size,
+                    )
+
+                    UpdateCheckResult.UpToDate -> UpdateStatusDto(
+                        state = "UP_TO_DATE",
+                        currentVersion = currentVersion(),
+                    )
+
+                    is UpdateCheckResult.Failure -> UpdateStatusDto(
+                        state = "FAILURE",
+                        currentVersion = currentVersion(),
+                        notesUrl = checked.notesUrl,
+                        // Даже при тихой автопроверке причина возвращается: показывать её
+                        // или нет, решает интерфейс, а не мост.
+                        error = checked.reason,
+                    )
+                }
+            }
+            callback(result)
+        }
+    }
+
+    override fun install(allowPrerelease: Boolean, callback: (Result<String?>) -> Unit) {
+        bridge.scope.launch {
+            val result = runCatching {
+                val manager = manager() ?: return@runCatching "нет контекста приложения"
+                when (val checked = manager.check(allowPrerelease)) {
+                    is UpdateCheckResult.Available -> when (
+                        val installed = manager.downloadAndInstall(checked)
+                    ) {
+                        InstallResult.Started -> null
+                        is InstallResult.Failure -> installed.reason
+                    }
+
+                    UpdateCheckResult.UpToDate -> "обновление не требуется"
+                    is UpdateCheckResult.Failure -> checked.reason
+                }
+            }
+            callback(result)
+        }
+    }
+
+    override fun openReleasePage(url: String) {
+        val activity = activityProvider() ?: return
+        runCatching {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+
+    private fun manager(): UpdateManager? {
+        val context = activityProvider() ?: return null
+        return Updater.create(context, statusAction = INSTALL_STATUS_ACTION)
+    }
+
+    private fun currentVersion(): String =
+        runCatching { CoreGraph.deviceContext.appVersion }.getOrDefault("unknown")
+
+    private fun failure(reason: String) = UpdateStatusDto(
+        state = "FAILURE",
+        currentVersion = currentVersion(),
+        error = reason,
+    )
+
+    internal companion object {
+        /** По этому действию система сообщит исход установки; приёмник объявляет `:app`. */
+        const val INSTALL_STATUS_ACTION: String = "com.mist3s.nopecall.INSTALL_STATUS"
     }
 }
 

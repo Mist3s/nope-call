@@ -6,6 +6,9 @@ import android.telecom.CallScreeningService
 import android.util.Log
 import com.mist3s.nopecall.core.CoreGraph
 import com.mist3s.nopecall.core.facts.TelecomCallDetails
+import com.mist3s.nopecall.core.observe.CallObservation
+import com.mist3s.nopecall.core.observe.NetworkContext
+import com.mist3s.nopecall.core.storage.ScreeningDiagnostics
 import com.mist3s.nopecall.core.storage.ScreeningRecord
 import com.mist3s.nopecall.engine.Budget
 import com.mist3s.nopecall.engine.Decision
@@ -42,6 +45,9 @@ internal class NopeCallScreeningService : CallScreeningService() {
         val startedAt = System.nanoTime()
         val coldStart = FIRST_CALL.compareAndSet(true, false)
 
+        val observationEnabled = runCatching { CoreGraph.observationStore.config().enabled }
+            .getOrDefault(false)
+
         val session = CallSession(callDetails, budgetMs = budgetFor(callDetails))
         sessions[callDetails] = session
 
@@ -53,14 +59,18 @@ internal class NopeCallScreeningService : CallScreeningService() {
             TimeUnit.MILLISECONDS,
         )
 
+        val reader = TelecomCallDetails(callDetails)
         val outcome = try {
             pipeline().decide(
-                details = TelecomCallDetails(callDetails),
+                details = reader,
                 budget = Budget.wallClock(
                     totalNanos = session.budgetMs * 1_000_000,
                     perRuleNanos = PER_RULE_BUDGET_NANOS,
                 ),
                 coldStart = coldStart,
+                // Список проверенных правил нужен режиму наблюдения: без него на вопрос
+                // «почему не сработало» ответить нечем (ТЗ §7.7.1).
+                collectTrace = observationEnabled,
             )
         } catch (t: Throwable) {
             // Единая воронка отказов: любой сбой означает разрешить звонок (ТЗ §1.1).
@@ -69,6 +79,7 @@ internal class NopeCallScreeningService : CallScreeningService() {
         }
 
         val decision = outcome.decision.copy(elapsedNanos = System.nanoTime() - startedAt)
+        val directBoot = getSystemService(UserManager::class.java)?.isUserUnlocked == false
         answerOnce(session, decision)
 
         // Ответ отправлен — задержки звонка больше не существует по определению (архитектура §4.6).
@@ -77,18 +88,87 @@ internal class NopeCallScreeningService : CallScreeningService() {
         // сразу после ответа Telecom отвязывается, и при закрытом интерфейсе процесс становится
         // кэшированным. На прошивках, агрессивно завершающих процессы, асинхронная запись
         // систематически теряла бы именно те события, ради которых существует режим наблюдения.
+        val occurredAt = System.currentTimeMillis()
+        // Контекст сети собирается ЗДЕСЬ, а не до решения: от сети решение не зависит,
+        // а вызовы TelephonyManager на холодном старте стоят миллисекунды бюджета звонка.
+        // При этом наличие операторской подписи от сети и VoLTE зависит прямо (ТЗ §6.3.1),
+        // и без этого контекста ответить «почему подписи не было» нечем.
+        val extras = runCatching { reader.extrasDump() }.getOrDefault(emptyList())
+        val intentExtras = runCatching { reader.intentExtrasDump() }.getOrDefault(emptyList())
+        val network = runCatching { CoreGraph.networkContext.read() }
+            .getOrDefault(NetworkContext.UNKNOWN)
+        val diagnostics = ScreeningDiagnostics(
+            coldStart = coldStart,
+            directBoot = directBoot,
+            networkType = network.networkType,
+            volte = network.volte,
+            operatorName = network.operatorName,
+            roaming = network.roaming,
+            extrasKeys = extras.map { it.key } + intentExtras.map { it.key },
+            verificationStatus = runCatching { reader.verificationStatus }.getOrNull(),
+        )
+
         try {
             CoreGraph.eventSpool.append(
                 ScreeningRecord(
-                    occurredAt = System.currentTimeMillis(),
+                    occurredAt = occurredAt,
                     facts = outcome.facts,
                     decision = decision,
                     matchedRuleTitle = null,
                     budgetMs = session.budgetMs.toInt(),
+                    diagnostics = diagnostics,
                 )
             )
         } catch (t: Throwable) {
             Log.w(TAG, "не удалось записать событие", t)
+        }
+
+        // Режим наблюдения (ТЗ §7.7.1). Тоже синхронно и по той же причине: сразу после ответа
+        // Telecom отвязывается, процесс становится кэшированным, и отложенная запись
+        // систематически теряла бы именно те события, ради которых режим существует.
+        try {
+            CoreGraph.observation.observeCall(
+                CallObservation(
+                    at = occurredAt,
+                    handleScheme = reader.handleScheme,
+                    handleValue = reader.handleValue,
+                    handlePresentation = reader.handlePresentation,
+                    // Подпись — дословно, без канонизации: предмет исследования именно сырой вид.
+                    displayNameRaw = reader.callerDisplayName,
+                    displayNamePresentation = reader.callerDisplayNamePresentation,
+                    verificationStatus = diagnostics.verificationStatus,
+                    creationTimeMillis = callDetails.creationTimeMillis,
+                    callDirection = reader.callDirection,
+                    connectTimeMillis = reader.connectTimeMillis,
+                    accountHandle = reader.accountHandle,
+                    extras = extras,
+                    intentExtras = intentExtras,
+                    digits = outcome.facts?.number?.let { it.canonicalDigits.ifEmpty { it.digits } },
+                    e164 = outcome.facts?.number?.e164,
+                    nameNorm = outcome.facts?.name?.whole?.norm,
+                    nameTokens = outcome.facts?.name?.whole?.tokens?.joinToString(" "),
+                    nameFold = outcome.facts?.name?.whole?.fold,
+                    orgFold = outcome.facts?.name?.org?.fold,
+                    categoryFold = outcome.facts?.name?.category?.fold,
+                    nameSource = outcome.facts?.nameSource?.name,
+                    inContacts = outcome.facts?.inContacts,
+                    action = decision.action.name,
+                    reason = decision.reason.name,
+                    degradations = decision.degradations,
+                    matchedRuleId = decision.matchedRuleId,
+                    checkedRuleIds = outcome.checkedRuleIds,
+                    checkedTruncated = outcome.checkedTruncated,
+                    latencyMs = (decision.elapsedNanos / 1_000_000).toInt(),
+                    budgetMs = session.budgetMs.toInt(),
+                    coldStart = coldStart,
+                    directBoot = directBoot,
+                    watchdogFired = decision.reason == DecisionReason.WATCHDOG_ANSWERED,
+                    network = network,
+                    device = CoreGraph.deviceContext,
+                )
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "не удалось записать наблюдение", t)
         }
 
         // Уведомление — только о фактической блокировке: сообщать «звонок прошёл» незачем.

@@ -10,18 +10,28 @@ class PlatformRepository {
     RulesApi? rules,
     JournalApi? journal,
     SettingsApi? settings,
+    ObservationApi? observation,
+    DiagnosticsApi? diagnosticsApi,
+    UpdaterApi? updater,
   }) : _status = status ?? StatusApi(),
        _rules = rules ?? RulesApi(),
        _journal = journal ?? JournalApi(),
-       _settings = settings ?? SettingsApi();
+       _settings = settings ?? SettingsApi(),
+       _observation = observation ?? ObservationApi(),
+       _diagnostics = diagnosticsApi ?? DiagnosticsApi(),
+       _updater = updater ?? UpdaterApi();
 
   final StatusApi _status;
   final RulesApi _rules;
   final JournalApi _journal;
   final SettingsApi _settings;
+  final ObservationApi _observation;
+  final DiagnosticsApi _diagnostics;
+  final UpdaterApi _updater;
 
   Future<SetupStatus> status() => _status.status();
   Future<bool> requestRole() => _status.requestRole();
+  Future<bool> requestPermissions() => _status.requestPermissions();
   void openAppSettings() => _status.openAppSettings();
 
   Future<List<RuleDto>> rules() => _rules.list();
@@ -52,6 +62,24 @@ class PlatformRepository {
     );
   }
 
+  Future<bool> exportRules() => _rules.exportRules();
+
+  Future<ImportReportDto> importRules({required bool replaceAll}) =>
+      _rules.importRules(replaceAll);
+
+  Future<int> exportJournalCsv({int? fromAt, int? toAt}) =>
+      _journal.exportCsv(fromAt, toAt);
+
+  Future<UpdateStatusDto> checkUpdate({
+    required bool allowPrerelease,
+    bool silent = false,
+  }) => _updater.check(allowPrerelease, silent);
+
+  Future<String?> installUpdate({required bool allowPrerelease}) =>
+      _updater.install(allowPrerelease);
+
+  void openReleasePage(String url) => _updater.openReleasePage(url);
+
   Future<void> setRuleEnabled(int id, bool enabled) =>
       _rules.setEnabled(id, enabled);
 
@@ -73,12 +101,63 @@ class PlatformRepository {
   ) => _rules.preview(targetType, matchType, pattern);
 
   Future<JournalPageDto> journalPage({
-    int? beforeTime,
-    int? beforeId,
+    JournalFilterDto? filter,
+    JournalCursorDto? cursor,
     int limit = 50,
-  }) => _journal.page(beforeTime, beforeId, limit);
+  }) => _journal.page(filter ?? JournalFilterDto(kind: 'ALL'), cursor, limit);
 
   Future<SummaryDto> summary() => _journal.summary();
+
+  Future<List<String>> journalSims() => _journal.sims();
+  Future<void> hideJournalRecord(int systemId) => _journal.hide(systemId);
+  Future<int> clearJournal() => _journal.clear();
+  Future<SyncResultDto> syncCallLog() => _journal.syncCallLog();
+
+  Future<ObservationStatusDto> observationStatus() => _observation.status();
+
+  Future<ObservationReportDto> observationReport(int periodDays) =>
+      _observation.report(periodDays);
+
+  Future<void> setObservationConfig({
+    required bool enabled,
+    required bool techEnabled,
+    required bool techVerbose,
+    required int callsRetentionDays,
+    required int callsMaxMb,
+    required int techRetentionDays,
+    required int techMaxMb,
+    required bool maskByDefault,
+  }) => _observation.setConfig(
+    enabled,
+    techEnabled,
+    techVerbose,
+    callsRetentionDays,
+    callsMaxMb,
+    techRetentionDays,
+    techMaxMb,
+    maskByDefault,
+  );
+
+  Future<ExportEstimateDto> estimateLogs({
+    required int fromAt,
+    required int toAt,
+  }) => _observation.estimate(fromAt, toAt);
+
+  Future<bool> shareLogs({
+    required int fromAt,
+    required int toAt,
+    required bool mask,
+    required String periodLabel,
+  }) => _observation.share(fromAt, toAt, mask, periodLabel);
+
+  Future<int> deleteLogs() => _observation.deleteLogs();
+
+  Future<DiagnosticsDto> diagnostics() => _diagnostics.report();
+
+  Future<TestRunDto> testRun(String number, String? name) =>
+      _diagnostics.testRun(number, name);
+
+  void openBatterySettings() => _diagnostics.openBatterySettings();
 
   Future<Map<String, String>> settings() => _settings.all();
   Future<void> putSetting(String key, String value) =>
@@ -139,6 +218,65 @@ abstract final class Labels {
     'SNAPSHOT_UNAVAILABLE': 'правила недоступны — звонок пропущен',
     'WATCHDOG_ANSWERED': 'не успели проверить — звонок пропущен',
   };
+
+  /// Типы записей журнала (ТЗ §7.4). «Заблокирован приложением» и «заблокирован системой»
+  /// разделены обязательно: иначе пользователь приписывает нам блокировки прошивки.
+  static const kinds = {
+    'BLOCKED_BY_APP': 'Заблокирован приложением',
+    'BLOCKED_EXTERNAL': 'Заблокирован системой или другим приложением',
+    'SILENCED': 'Без звука',
+    'INCOMING_ANSWERED': 'Входящий принятый',
+    'MISSED': 'Входящий пропущенный',
+    'REJECTED_BY_USER': 'Отклонён вручную',
+    'OUTGOING': 'Исходящий',
+    'VOICEMAIL': 'Голосовая почта',
+    'CHECKED_ALLOWED': 'Проверен и пропущен',
+    'UNKNOWN': 'Результат неизвестен',
+  };
+
+  /// Фильтры журнала (ТЗ §7.5).
+  static const journalKinds = {
+    'ALL': 'Все',
+    'BLOCKED_BY_US': 'Мы заблокировали',
+    'BLOCKED_ANY': 'Все блокировки',
+    'INCOMING': 'Входящие',
+    'OUTGOING': 'Исходящие',
+    'MISSED': 'Пропущенные',
+    'SILENCED': 'Без звука',
+  };
+
+  static const nameSources = {
+    'CNAP': 'подпись оператора',
+    'CNAP_OPERATOR_LABEL': 'подпись оператора',
+    'CONTACTS': 'контакты',
+    'SYSTEM_LOG': 'стало известно позже',
+    'NONE': 'названия не было',
+  };
+
+  /// Короткая подпись типа — для строки списка. В карточке звонка показывается полная:
+  /// «Заблокирован системой или другим приложением» занимало в списке две строки у каждой
+  /// второй записи и превращало журнал в стену переносов.
+  static const shortKinds = {
+    'BLOCKED_BY_APP': 'Заблокирован приложением',
+    'BLOCKED_EXTERNAL': 'Заблокирован системой',
+    'INCOMING_ANSWERED': 'Входящий',
+    'MISSED': 'Пропущенный',
+    'REJECTED_BY_USER': 'Отклонён вручную',
+    'CHECKED_ALLOWED': 'Проверен, пропущен',
+  };
+
+  static String kind(String code) => kinds[code] ?? code;
+  static String shortKind(String code) => shortKinds[code] ?? kind(code);
+  static String journalKind(String code) => journalKinds[code] ?? code;
+  static String nameSource(String code) => nameSources[code] ?? code;
+
+  /// То же, но как подпись строки: с заглавной. Формулировки в [nameSources] написаны как
+  /// продолжение фразы («названия не было»), и в роли подписи рядом с «Подпись была»
+  /// они смотрелись как опечатка.
+  static String nameSourceLabel(String code) {
+    final text = nameSource(code);
+    return text.isEmpty ? text : text[0].toUpperCase() + text.substring(1);
+  }
 
   static String target(String code) => targets[code] ?? code;
   static String matchType(String code) => matchTypes[code] ?? code;

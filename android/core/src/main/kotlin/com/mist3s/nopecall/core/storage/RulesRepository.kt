@@ -217,6 +217,16 @@ public class RulesRepository(
         rebuildSnapshot()
     }
 
+    /**
+     * Запись настройки, которая **не влияет на решение по звонку** — например, метки времени
+     * обслуживания и параметры журнала. Снимок не пересобирается: пересборка ради такой
+     * настройки только тратила бы диск и создавала бы окно, в котором снимок обновляется
+     * без причины.
+     */
+    public suspend fun putInternal(key: String, value: String) {
+        db.settings().put(SettingEntity(key, value))
+    }
+
     public suspend fun getSetting(key: String): String? = db.settings().get(key)
 
     public suspend fun allSettings(): Map<String, String> =
@@ -243,6 +253,13 @@ public class RulesRepository(
         public const val KEY_UNKNOWN_ACTION: String = "unknown_action"
         public const val KEY_REGION: String = "region"
         public const val KEY_CATEGORY_DICT: String = "category_dictionary"
+
+        /** Ретеншен журнала (ТЗ §7.6). `0` — «хранить всё». */
+        public const val KEY_RETENTION_DAYS: String = "journal_retention_days"
+        public const val KEY_RETENTION_RECORDS: String = "journal_retention_records"
+
+        /** Когда обслуживание журнала выполнялось последний раз. */
+        public const val KEY_HOUSEKEEPING_AT: String = "housekeeping_at"
 
         /**
          * Корни категорий из наблюдённого корпуса подписей (ТЗ §6.3.1). Пополняются по данным

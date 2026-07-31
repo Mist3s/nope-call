@@ -33,6 +33,28 @@ public interface CallDetailsReader {
     /** Момент создания звонка в Telecom — точка отсчёта системного дедлайна (архитектура §4.3). */
     public val creationTimeMillis: Long
 
+    /** `Call.Details.getCallDirection()`; `null` до Android 10 включительно на части прошивок. */
+    public val callDirection: Int?
+        get() = null
+
+    public val connectTimeMillis: Long?
+        get() = null
+
+    /** `getAccountHandle()` в виде строки: SIM, через которую пришёл звонок. */
+    public val accountHandle: String?
+        get() = null
+
+    /**
+     * Полный дамп `getExtras()` для режима наблюдения (ТЗ §7.7.1).
+     *
+     * По умолчанию пусто: построение фактов эти данные не использует, а реализация обязана
+     * ловить исключение **на каждом ключе отдельно** — вендорская реализация может положить
+     * в `Bundle` что угодно, включая объект, чей `toString` бросает.
+     */
+    public fun extrasDump(): List<com.mist3s.nopecall.core.observe.ExtraEntry> = emptyList()
+
+    public fun intentExtrasDump(): List<com.mist3s.nopecall.core.observe.ExtraEntry> = emptyList()
+
     public companion object {
         // Значения TelecomManager.PRESENTATION_*. Продублированы, а не импортированы, чтобы
         // интерфейс и построение фактов оставались проверяемыми без Android.

@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../data/repository.dart';
 import '../../widgets/async_view.dart';
+import '../about/about_screen.dart';
+import '../diag/diagnostics_screen.dart';
+import '../journal/journal_settings_screen.dart';
+import '../observe/observe_screen.dart';
 
 /// Настройки (ТЗ §9.6).
 ///
@@ -97,7 +101,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (v) => _put('unknown_action', v),
               ),
               const Divider(),
-              const _AboutCard(),
+              // Один заголовок на три экрана: у каждого своё содержимое, свои сроки хранения
+              // и своя кнопка удаления. Раскладывать их строками здесь значило бы поставить
+              // рядом два разных «хранить, суток» и две разные «очистить» — и они читались бы
+              // как повтор одного и того же.
+              const _SectionTitle('Данные и диагностика'),
+              _NavTile(
+                title: 'Журнал',
+                subtitle: 'Сколько хранить и как очистить',
+                screen: () => const JournalSettingsScreen(),
+              ),
+              _NavTile(
+                title: 'Режим наблюдения',
+                subtitle: 'Что присылает оператор, сводка и выгрузка логов',
+                screen: () => const ObserveScreen(),
+              ),
+              _NavTile(
+                title: 'Диагностика',
+                subtitle: 'Состояние, задержки и тестовый прогон',
+                screen: () => const DiagnosticsScreen(),
+              ),
+              _NavTile(
+                title: 'О приложении',
+                subtitle: 'Версия, обновление, как всё устроено',
+                screen: () => const AboutScreen(),
+              ),
+              const Divider(),
+              const _SectionTitle('Разрешения'),
+              ListTile(
+                title: const Text('Запросить доступы'),
+                subtitle: const Text(
+                  'Журнал звонков, контакты, уведомления. Без них блокировка по номеру '
+                  'работает, а исход звонка и правило «есть в контактах» — нет',
+                ),
+                onTap: () async {
+                  final shown = await _repo.requestPermissions();
+                  if (!context.mounted) return;
+                  if (!shown) {
+                    // Диалог система больше не покажет: остаётся только экран настроек.
+                    _repo.openAppSettings();
+                  }
+                },
+              ),
+              const Divider(),
+              _AboutCard(defaultAction: defaultAction),
             ],
           );
         },
@@ -158,8 +205,39 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
+/// Переход на отдельный экран. Без ведущей иконки: на этом экране есть строки и с иконкой,
+/// и без, и левый край подписи менялся посреди прокрутки. Один край для всех строк ровнее,
+/// чем украшение у половины из них. Что это переход, показывает шеврон справа.
+class _NavTile extends StatelessWidget {
+  const _NavTile({
+    required this.title,
+    required this.subtitle,
+    required this.screen,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget Function() screen;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => screen())),
+    );
+  }
+}
+
 class _AboutCard extends StatelessWidget {
-  const _AboutCard();
+  const _AboutCard({required this.defaultAction});
+
+  /// Текст внизу обещает, что при несовпадении правила звонок проходит. Если действие
+  /// по умолчанию переключено, обещание перестаёт быть правдой — и молчать об этом нельзя.
+  final String defaultAction;
 
   @override
   Widget build(BuildContext context) {
@@ -167,10 +245,11 @@ class _AboutCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Text(
-        'Всё работает офлайн. При проверке звонка приложение не обращается к сети, '
-        'номера и журнал никуда не передаются, резервное копирование выключено.\n\n'
-        'Приложение блокирует звонок только при совпадении вашего правила. Если правило '
-        'не совпало или что-то отказало — звонок проходит.',
+        'Проверка звонка работает офлайн: у части приложения, которая принимает решение, '
+        'сетевых зависимостей нет — это проверяется сборкой. Номера и журнал никуда '
+        'не передаются, резервное копирование выключено. Сеть нужна только для проверки '
+        'и загрузки обновления.\n\n'
+        '${defaultAction == 'ALLOW' ? 'Приложение блокирует звонок только при совпадении вашего правила. Если правило не совпало или что-то отказало — звонок проходит.' : 'Действие по умолчанию переключено: звонок, не совпавший ни с одним правилом, не проходит. Это обратный порядок относительно замысла приложения. Сбой или таймаут по-прежнему пропускают звонок.'}',
         style: Theme.of(
           context,
         ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),

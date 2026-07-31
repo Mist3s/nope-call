@@ -7,6 +7,7 @@ import com.mist3s.nopecall.engine.Budget
 import com.mist3s.nopecall.engine.CallFacts
 import com.mist3s.nopecall.engine.Decision
 import com.mist3s.nopecall.engine.DecisionReason
+import com.mist3s.nopecall.engine.DecisionTrace
 import com.mist3s.nopecall.engine.Degradation
 import com.mist3s.nopecall.engine.RuleEngine
 
@@ -26,9 +27,27 @@ internal class ScreeningPipeline(
     private val directBoot: () -> Boolean = { false },
 ) {
     /** Результат вместе с фактами: факты нужны журналу и режиму наблюдения после ответа. */
-    data class Outcome(val decision: Decision, val facts: CallFacts?)
+    data class Outcome(
+        val decision: Decision,
+        val facts: CallFacts?,
+        /** Правила, до которых дошёл проход. Пусто, если трассу не запрашивали. */
+        val checkedRuleIds: List<Long> = emptyList(),
+        val checkedTruncated: Boolean = false,
+    )
 
-    fun decide(details: CallDetailsReader, budget: Budget, coldStart: Boolean): Outcome {
+    fun decide(
+        details: CallDetailsReader,
+        budget: Budget,
+        coldStart: Boolean,
+        /**
+         * Собирать список проверенных правил (ТЗ §7.7.1).
+         *
+         * Флагом, а не всегда: трасса собирается внутри прохода по правилам и потому тратит
+         * бюджет решения. При включённом режиме наблюдения эта плата оправдана — без списка
+         * проверенных правил на вопрос «почему не сработало» ответить нечем.
+         */
+        collectTrace: Boolean = false,
+    ): Outcome {
         var flags = 0
         if (coldStart) flags = flags or Degradation.COLD_START.bit
         if (directBoot()) flags = flags or Degradation.DIRECT_BOOT.bit
@@ -52,14 +71,28 @@ internal class ScreeningPipeline(
             )
         }
 
+        val trace = if (collectTrace) DecisionTrace(TRACE_LIMIT) else null
         val decision = try {
-            RuleEngine.decide(facts, snapshot, budget)
+            RuleEngine.decide(facts, snapshot, budget, trace)
         } catch (t: Throwable) {
             // Движок не должен бросать наружу; если всё же бросил — разрешаем.
             Decision.allow(DecisionReason.SNAPSHOT_UNAVAILABLE)
         }
 
-        return Outcome(decision.withDegradations(flags), facts)
+        return Outcome(
+            decision = decision.withDegradations(flags),
+            facts = facts,
+            checkedRuleIds = trace?.steps?.map { it.rule.id }.orEmpty(),
+            checkedTruncated = trace?.truncated == true,
+        )
+    }
+
+    private companion object {
+        /**
+         * Предел трассы. При промахе по всем правилам их могут быть тысячи, и складывать
+         * каждое в список — плата за диагностику из бюджета звонка.
+         */
+        const val TRACE_LIMIT = 200
     }
 }
 
