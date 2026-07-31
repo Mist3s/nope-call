@@ -69,9 +69,12 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
-      - name: Движок, границы модулей, unit-тесты
+      # Покрытие движка проверяется и здесь, хотя CI его уже проверил на PR: релиз можно
+      # запустить руками через workflow_dispatch, минуя PR, и тогда порога ТЗ §18 п.28
+      # не проверил бы никто. Выпуск — последняя точка, где отказ ещё дешёвый.
+      - name: Движок, покрытие, границы модулей, unit-тесты
         run: |
-          ./gradlew :engine:test \
+          ./gradlew :engine:test :engine:jacocoTestCoverageVerification \
                     :core:verifyModuleBoundaries :updater:verifyUpdaterBoundaries \
                     :core:testReleaseUnitTest :updater:testReleaseUnitTest \
                     :app:verifyReleaseVersion -PstrictVersion=true
@@ -81,18 +84,46 @@ jobs:
       # репозитория; офлайн-копия ключа — у заказчика в двух местах (ТЗ §15.4, §20).
       - name: Ключ подписи из секретов
         env:
-          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Имена переменных совпадают с именами секретов: проверка ниже обращается к ним
+          # косвенно (${!name}) и ругается тем же именем, которое надо задать в настройках.
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KS_B64" ]; then
-            echo "не задан секрет ANDROID_KEYSTORE_BASE64 — релиз подписать нечем" >&2
+          # Проверяются все четыре секрета, а не только хранилище. Пустой пароль или алиас
+          # не остановил бы сборку сам по себе: он молча уехал бы в key.properties, и отказ
+          # вылез бы позже — либо непонятной ошибкой Gradle на этапе подписи, либо, что хуже,
+          # сборкой, подписанной не тем ключом. Установить её поверх прежней уже нельзя
+          # (INSTALL_FAILED_UPDATE_INCOMPATIBLE), а откатить релиз нельзя тоже.
+          #
+          # Собираем список отсутствующих целиком и печатаем один раз, а не падаем на первом:
+          # при первом же настроенном релизе полезно узнать сразу про все незаданные секреты.
+          # Значения не печатаются ни при каких условиях, `set -x` здесь запрещён по той же
+          # причине — GitHub маскирует секреты в логе, но полагаться на маскирование нельзя.
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD \
+                      ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "не заданы секреты подписи: ${missing[*]}" >&2
+            echo "релиз подписать нечем — задайте их в настройках репозитория (ТЗ §15.4, §20)" >&2
             exit 1
           fi
-          echo "$KS_B64" | base64 -d > android/app/release.jks
+
+          # Битую base64 ловит сам base64 -d: шаг выполняется с `bash -e`, а код возврата
+          # конвейера — это код последней команды, то есть декодера.
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.jks
+          if [ ! -s android/app/release.jks ]; then
+            echo "ANDROID_KEYSTORE_BASE64 декодировался в пустой файл" >&2
+            exit 1
+          fi
           printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-            "$KS_PASS" "$KEY_ALIAS" "$KEY_PASS" > android/key.properties
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" \
+            > android/key.properties
 
       - run: flutter build apk --release --split-per-abi
       - run: flutter build apk --release # универсальный, на случай сомнений в архитектуре
