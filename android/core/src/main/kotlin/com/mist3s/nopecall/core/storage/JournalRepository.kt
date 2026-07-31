@@ -197,6 +197,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
                 allowRulesCovered = allowRules,
                 contactsCovered = contactsPreview.count,
                 contactsTruncated = contactsPreview.truncated,
+                contactsState = contactsPreview.state,
             )
         }
 
@@ -228,6 +229,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             allowRulesCovered = allowRules,
             contactsCovered = contactsPreview.count,
             contactsTruncated = contactsPreview.truncated,
+            contactsState = contactsPreview.state,
         )
     }
 
@@ -319,9 +321,11 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         val byNumber = target == "NUMBER" &&
             canonicalPattern.isNotEmpty() &&
             matchType in NUMBER_MATCH_TYPES
-        if (!everyContact && !byNumber) return ContactPreview.UNKNOWN
+        // Правило по названию звонящего к телефонной книге отношения не имеет: у контакта
+        // есть номер, а не операторская подпись. Это «неприменимо», а не «не смогли проверить».
+        if (!everyContact && !byNumber) return ContactPreview.NOT_APPLICABLE
 
-        val numbers = contacts.numbers(limit) ?: return ContactPreview.UNKNOWN
+        val numbers = contacts.numbers(limit) ?: return ContactPreview.NO_ACCESS
         return ContactPreview(
             count = if (everyContact) {
                 numbers.size
@@ -333,6 +337,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             // Предел достигнут — показатель нижняя граница. Молча выдать его за точное число
             // нельзя: «ровно 3 контакта» и «не меньше 3» пользователь читает по-разному.
             truncated = numbers.size >= limit,
+            state = ContactsState.COUNTED,
         )
     }
 
@@ -375,17 +380,45 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         val truncated: Boolean,
         /** Перекрытых разрешающих правил. Приближение, см. `countAllowRulesCovered`. */
         val allowRulesCovered: Int? = null,
-        /** Номеров телефонной книги. `null` — нет `READ_CONTACTS` либо показатель неприменим. */
+        /** Номеров телефонной книги. Осмысленно только при [ContactsState.COUNTED]. */
         val contactsCovered: Int? = null,
         /** Книга прочитана не до конца: [contactsCovered] — нижняя граница, «≥ N». */
         val contactsTruncated: Boolean = false,
+        /** Что вообще произошло с проверкой книги. См. [ContactsState]. */
+        val contactsState: ContactsState = ContactsState.NOT_APPLICABLE,
     )
 
-    /** Внутренний результат прохода по книге: число и признак усечения ходят только вместе. */
-    private data class ContactPreview(val count: Int?, val truncated: Boolean) {
+    /**
+     * Итог проверки телефонной книги.
+     *
+     * Состояние, а не один `null` на все случаи. Раньше `contactsCovered = null` значило
+     * и «доступа к книге нет», и «к такому правилу показатель не применяется», и интерфейс
+     * печатал первое всегда: у правила по операторской подписи он сообщал «нет доступа
+     * к телефонной книге» при выданном разрешении. «Не знаю» и «неприменимо» — разные
+     * утверждения, и различать их обязан источник, а не тот, кто рисует текст.
+     */
+    public enum class ContactsState {
+        /** Книга прочитана, [PreviewResult.contactsCovered] — число попавших номеров. */
+        COUNTED,
+
+        /** Правило не про номера: телефонная книга к нему отношения не имеет. */
+        NOT_APPLICABLE,
+
+        /** Правило про номера, но книга недоступна: нет `READ_CONTACTS`. */
+        NO_ACCESS,
+    }
+
+    /** Внутренний результат прохода по книге: число, усечение и состояние ходят только вместе. */
+    private data class ContactPreview(
+        val count: Int?,
+        val truncated: Boolean,
+        val state: ContactsState,
+    ) {
         companion object {
-            /** «Не знаю»: доступа нет или показатель к такому правилу не применяется. */
-            val UNKNOWN = ContactPreview(count = null, truncated = false)
+            val NOT_APPLICABLE =
+                ContactPreview(null, truncated = false, state = ContactsState.NOT_APPLICABLE)
+            val NO_ACCESS =
+                ContactPreview(null, truncated = false, state = ContactsState.NO_ACCESS)
         }
     }
 

@@ -11,6 +11,7 @@ import com.mist3s.nopecall.core.role.RoleController
 import com.mist3s.nopecall.core.storage.JournalCursor
 import com.mist3s.nopecall.core.storage.JournalFilter
 import com.mist3s.nopecall.core.storage.ImportMode
+import com.mist3s.nopecall.core.storage.JournalRepository
 import com.mist3s.nopecall.core.storage.ImportResult
 import com.mist3s.nopecall.core.storage.RulesRepository
 import com.mist3s.nopecall.core.storage.SaveResult
@@ -313,6 +314,7 @@ internal class RulesApiImpl(
                     contactsTruncated = preview.contactsTruncated,
                     allowRulesCovered = preview.allowRulesCovered?.toLong(),
                     contactsCovered = preview.contactsCovered?.toLong(),
+                    contactsState = preview.contactsState.name,
                 )
             }
             callback(result)
@@ -324,6 +326,7 @@ internal class RulesApiImpl(
         count = 0,
         truncated = false,
         contactsTruncated = false,
+        contactsState = JournalRepository.ContactsState.NOT_APPLICABLE.name,
         allowRulesCovered = null,
         contactsCovered = null,
     )

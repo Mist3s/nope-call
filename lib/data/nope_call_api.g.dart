@@ -965,6 +965,7 @@ class PreviewDto {
     required this.contactsTruncated,
     this.allowRulesCovered,
     this.contactsCovered,
+    required this.contactsState,
   });
 
   int count;
@@ -978,9 +979,14 @@ class PreviewDto {
   /// Сколько разрешающих правил новое правило перекрывает. `null` — не считали.
   int? allowRulesCovered;
 
-  /// Сколько номеров из телефонной книги попадёт под правило. `null` — нет доступа
-  /// к контактам: «ноль контактов» и «мы не смогли проверить» — разные утверждения.
+  /// Сколько номеров из телефонной книги попадёт под правило. Осмысленно только
+  /// при `contactsState == 'COUNTED'`.
   int? contactsCovered;
+
+  /// COUNTED — книга прочитана; NOT_APPLICABLE — правило не про номера, книга тут не при чём;
+  /// NO_ACCESS — правило про номера, но доступа к книге нет. Три разных состояния, а не один
+  /// `null`: иначе интерфейс сообщает «нет доступа» там, где показатель просто неприменим.
+  String contactsState;
 
   List<Object?> _toList() {
     return <Object?>[
@@ -989,6 +995,7 @@ class PreviewDto {
       contactsTruncated,
       allowRulesCovered,
       contactsCovered,
+      contactsState,
     ];
   }
 
@@ -1004,6 +1011,7 @@ class PreviewDto {
       contactsTruncated: result[2]! as bool,
       allowRulesCovered: result[3] as int?,
       contactsCovered: result[4] as int?,
+      contactsState: result[5]! as String,
     );
   }
 
@@ -1020,7 +1028,8 @@ class PreviewDto {
         _deepEquals(truncated, other.truncated) &&
         _deepEquals(contactsTruncated, other.contactsTruncated) &&
         _deepEquals(allowRulesCovered, other.allowRulesCovered) &&
-        _deepEquals(contactsCovered, other.contactsCovered);
+        _deepEquals(contactsCovered, other.contactsCovered) &&
+        _deepEquals(contactsState, other.contactsState);
   }
 
   @override
@@ -1029,7 +1038,7 @@ class PreviewDto {
 
   @override
   String toString() {
-    return 'PreviewDto(count: $count, truncated: $truncated, contactsTruncated: $contactsTruncated, allowRulesCovered: $allowRulesCovered, contactsCovered: $contactsCovered)';
+    return 'PreviewDto(count: $count, truncated: $truncated, contactsTruncated: $contactsTruncated, allowRulesCovered: $allowRulesCovered, contactsCovered: $contactsCovered, contactsState: $contactsState)';
   }
 }
 

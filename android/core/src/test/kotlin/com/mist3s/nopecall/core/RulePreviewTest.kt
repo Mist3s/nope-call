@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mist3s.nopecall.core.contacts.ContactNumberSource
 import com.mist3s.nopecall.core.storage.JournalRepository
+import com.mist3s.nopecall.core.storage.JournalRepository.ContactsState
 import com.mist3s.nopecall.core.storage.NopeCallDatabase
 import com.mist3s.nopecall.core.storage.RuleEntity
 import com.mist3s.nopecall.core.storage.ScreeningEventEntity
@@ -134,6 +135,54 @@ class RulePreviewTest {
                 journal.previewMatches("NUMBER", "PREFIX", "7495", contacts = contacts)
             }.contactsCovered,
         )
+    }
+
+    @Test
+    fun `«книга не при чём» и «книгу не прочитали» — разные состояния`() {
+        // Тот самый дефект, который дошёл до устройства: `null` значил и то и другое, и экран
+        // сообщал «нет доступа к телефонной книге» у правила по операторской подписи —
+        // при выданном разрешении. Сообщать неправду о разрешениях нельзя: пользователь
+        // пойдёт их выдавать и не поймёт, почему ничего не изменилось.
+        val byName = runBlocking {
+            journal.previewMatches(
+                target = "NAME_ORG",
+                matchType = "TOKEN",
+                canonicalPattern = "romashka",
+                contacts = FakeContacts(listOf("+74951234567")),
+            )
+        }
+        assertEquals(
+            ContactsState.NOT_APPLICABLE,
+            byName.contactsState,
+            "правило по названию к книге отношения не имеет",
+        )
+        assertNull(byName.contactsCovered)
+
+        val noAccess = runBlocking {
+            journal.previewMatches(
+                target = "NUMBER",
+                matchType = "PREFIX",
+                canonicalPattern = "7495",
+                contacts = FakeContacts(null),
+            )
+        }
+        assertEquals(
+            ContactsState.NO_ACCESS,
+            noAccess.contactsState,
+            "правило про номера, но книга недоступна",
+        )
+        assertNull(noAccess.contactsCovered)
+
+        val counted = runBlocking {
+            journal.previewMatches(
+                target = "NUMBER",
+                matchType = "PREFIX",
+                canonicalPattern = "7495",
+                contacts = FakeContacts(listOf("+79991112233")),
+            )
+        }
+        assertEquals(ContactsState.COUNTED, counted.contactsState, "книга прочитана")
+        assertEquals(0, counted.contactsCovered, "ни один контакт не подошёл — это ноль, не «не знаю»")
     }
 
     @Test

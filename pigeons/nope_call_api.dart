@@ -271,6 +271,7 @@ class PreviewDto {
     required this.count,
     required this.truncated,
     required this.contactsTruncated,
+    required this.contactsState,
     this.allowRulesCovered,
     this.contactsCovered,
   });
@@ -286,9 +287,14 @@ class PreviewDto {
   /// Сколько разрешающих правил новое правило перекрывает. `null` — не считали.
   int? allowRulesCovered;
 
-  /// Сколько номеров из телефонной книги попадёт под правило. `null` — нет доступа
-  /// к контактам: «ноль контактов» и «мы не смогли проверить» — разные утверждения.
+  /// Сколько номеров из телефонной книги попадёт под правило. Осмысленно только
+  /// при `contactsState == 'COUNTED'`.
   int? contactsCovered;
+
+  /// COUNTED — книга прочитана; NOT_APPLICABLE — правило не про номера, книга тут не при чём;
+  /// NO_ACCESS — правило про номера, но доступа к книге нет. Три разных состояния, а не один
+  /// `null`: иначе интерфейс сообщает «нет доступа» там, где показатель просто неприменим.
+  String contactsState;
 }
 
 /// Отчёт об импорте правил (ТЗ §15.8): что добавлено, что пропущено, что отклонено и почему.

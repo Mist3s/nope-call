@@ -897,10 +897,16 @@ data class PreviewDto (
   /** Сколько разрешающих правил новое правило перекрывает. `null` — не считали. */
   val allowRulesCovered: Long? = null,
   /**
-   * Сколько номеров из телефонной книги попадёт под правило. `null` — нет доступа
-   * к контактам: «ноль контактов» и «мы не смогли проверить» — разные утверждения.
+   * Сколько номеров из телефонной книги попадёт под правило. Осмысленно только
+   * при `contactsState == 'COUNTED'`.
    */
-  val contactsCovered: Long? = null
+  val contactsCovered: Long? = null,
+  /**
+   * COUNTED — книга прочитана; NOT_APPLICABLE — правило не про номера, книга тут не при чём;
+   * NO_ACCESS — правило про номера, но доступа к книге нет. Три разных состояния, а не один
+   * `null`: иначе интерфейс сообщает «нет доступа» там, где показатель просто неприменим.
+   */
+  val contactsState: String
 )
  {
   companion object {
@@ -910,7 +916,8 @@ data class PreviewDto (
       val contactsTruncated = pigeonVar_list[2] as Boolean
       val allowRulesCovered = pigeonVar_list[3] as Long?
       val contactsCovered = pigeonVar_list[4] as Long?
-      return PreviewDto(count, truncated, contactsTruncated, allowRulesCovered, contactsCovered)
+      val contactsState = pigeonVar_list[5] as String
+      return PreviewDto(count, truncated, contactsTruncated, allowRulesCovered, contactsCovered, contactsState)
     }
   }
   fun toList(): List<Any?> {
@@ -920,6 +927,7 @@ data class PreviewDto (
       contactsTruncated,
       allowRulesCovered,
       contactsCovered,
+      contactsState,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -930,7 +938,7 @@ data class PreviewDto (
       return true
     }
     val other = other as PreviewDto
-    return NopeCallApiPigeonUtils.deepEquals(this.count, other.count) && NopeCallApiPigeonUtils.deepEquals(this.truncated, other.truncated) && NopeCallApiPigeonUtils.deepEquals(this.contactsTruncated, other.contactsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.allowRulesCovered, other.allowRulesCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsCovered, other.contactsCovered)
+    return NopeCallApiPigeonUtils.deepEquals(this.count, other.count) && NopeCallApiPigeonUtils.deepEquals(this.truncated, other.truncated) && NopeCallApiPigeonUtils.deepEquals(this.contactsTruncated, other.contactsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.allowRulesCovered, other.allowRulesCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsCovered, other.contactsCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsState, other.contactsState)
   }
 
   override fun hashCode(): Int {
@@ -940,10 +948,11 @@ data class PreviewDto (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsTruncated)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.allowRulesCovered)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsCovered)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsState)
     return result
   }
   override fun toString(): String {
-    return "PreviewDto(count=$count, truncated=$truncated, contactsTruncated=$contactsTruncated, allowRulesCovered=$allowRulesCovered, contactsCovered=$contactsCovered)"
+    return "PreviewDto(count=$count, truncated=$truncated, contactsTruncated=$contactsTruncated, allowRulesCovered=$allowRulesCovered, contactsCovered=$contactsCovered, contactsState=$contactsState)"
   }
 }
 

@@ -82,14 +82,23 @@ String previewText(PreviewDto preview) {
     );
   }
 
-  final contacts = preview.contactsCovered;
-  if (contacts == null) {
-    parts.add('контакты не проверены: нет доступа к телефонной книге');
-  } else if (contacts > 0) {
-    parts.add(
-      'зацепит ${preview.contactsTruncated ? '≥ ' : ''}$contacts '
-      '${plural(contacts, 'контакт', 'контакта', 'контактов')}',
-    );
+  // По состоянию, а не по `null`: «книга не при чём» и «книгу не прочитали» — разные
+  // вещи, и раньше правило по операторской подписи сообщало «нет доступа к телефонной
+  // книге» при выданном разрешении.
+  final contacts = preview.contactsCovered ?? 0;
+  switch (preview.contactsState) {
+    case 'NO_ACCESS':
+      parts.add('контакты не проверены: нет доступа к телефонной книге');
+    case 'COUNTED' when contacts > 0:
+      parts.add(
+        'зацепит ${preview.contactsTruncated ? '≥ ' : ''}$contacts '
+        '${plural(contacts, 'контакт', 'контакта', 'контактов')}',
+      );
+    case 'COUNTED':
+      // Сказать прямо, что проверка была: тишина здесь читается как «не сработало».
+      parts.add('контакты не зацепит');
+    default:
+      break; // NOT_APPLICABLE: правило не про номера, книга тут не при чём
   }
 
   final allowed = preview.allowRulesCovered ?? 0;

@@ -387,7 +387,8 @@ class _CanonicalNote extends StatelessWidget {
           if (variants.length > 1) ...[
             const SizedBox(height: 8),
             Text(
-              'Правило будет искать ${variants.length} написаний — '
+              'Правило будет искать ${variants.length} '
+              '${plural(variants.length, 'написание', 'написания', 'написаний')} — '
               'у одной и той же организации транслитерация бывает разной:',
               style: Theme.of(context).textTheme.bodySmall,
             ),
