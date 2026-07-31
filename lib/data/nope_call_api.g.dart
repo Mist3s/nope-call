@@ -471,6 +471,7 @@ class JournalItemDto {
     required this.nameSource,
     required this.blockedByUs,
     required this.hadSignature,
+    required this.nameLate,
     this.action,
     this.reason,
     this.latencyMs,
@@ -503,6 +504,10 @@ class JournalItemDto {
   bool blockedByUs;
 
   bool hadSignature;
+
+  /// Название стало известно уже после решения: правила по названию на этом звонке
+  /// сработать не могли, и показывать его как «было» нельзя.
+  bool nameLate;
 
   /// `null` — звонок проверяли не мы: запись пришла из системного журнала.
   String? action;
@@ -538,6 +543,7 @@ class JournalItemDto {
       nameSource,
       blockedByUs,
       hadSignature,
+      nameLate,
       action,
       reason,
       latencyMs,
@@ -567,17 +573,18 @@ class JournalItemDto {
       nameSource: result[5]! as String,
       blockedByUs: result[6]! as bool,
       hadSignature: result[7]! as bool,
-      action: result[8] as String?,
-      reason: result[9] as String?,
-      latencyMs: result[10] as int?,
-      durationSeconds: result[11] as int?,
-      e164: result[12] as String?,
-      nameRaw: result[13] as String?,
-      matchedRuleId: result[14] as int?,
-      matchedRuleTitle: result[15] as String?,
-      eventId: result[16] as int?,
-      systemId: result[17] as int?,
-      phoneAccountId: result[18] as String?,
+      nameLate: result[8]! as bool,
+      action: result[9] as String?,
+      reason: result[10] as String?,
+      latencyMs: result[11] as int?,
+      durationSeconds: result[12] as int?,
+      e164: result[13] as String?,
+      nameRaw: result[14] as String?,
+      matchedRuleId: result[15] as int?,
+      matchedRuleTitle: result[16] as String?,
+      eventId: result[17] as int?,
+      systemId: result[18] as int?,
+      phoneAccountId: result[19] as String?,
     );
   }
 
@@ -598,6 +605,7 @@ class JournalItemDto {
         _deepEquals(nameSource, other.nameSource) &&
         _deepEquals(blockedByUs, other.blockedByUs) &&
         _deepEquals(hadSignature, other.hadSignature) &&
+        _deepEquals(nameLate, other.nameLate) &&
         _deepEquals(action, other.action) &&
         _deepEquals(reason, other.reason) &&
         _deepEquals(latencyMs, other.latencyMs) &&
@@ -617,7 +625,7 @@ class JournalItemDto {
 
   @override
   String toString() {
-    return 'JournalItemDto(id: $id, sourceRank: $sourceRank, occurredAt: $occurredAt, kind: $kind, rawNumber: $rawNumber, nameSource: $nameSource, blockedByUs: $blockedByUs, hadSignature: $hadSignature, action: $action, reason: $reason, latencyMs: $latencyMs, durationSeconds: $durationSeconds, e164: $e164, nameRaw: $nameRaw, matchedRuleId: $matchedRuleId, matchedRuleTitle: $matchedRuleTitle, eventId: $eventId, systemId: $systemId, phoneAccountId: $phoneAccountId)';
+    return 'JournalItemDto(id: $id, sourceRank: $sourceRank, occurredAt: $occurredAt, kind: $kind, rawNumber: $rawNumber, nameSource: $nameSource, blockedByUs: $blockedByUs, hadSignature: $hadSignature, nameLate: $nameLate, action: $action, reason: $reason, latencyMs: $latencyMs, durationSeconds: $durationSeconds, e164: $e164, nameRaw: $nameRaw, matchedRuleId: $matchedRuleId, matchedRuleTitle: $matchedRuleTitle, eventId: $eventId, systemId: $systemId, phoneAccountId: $phoneAccountId)';
   }
 }
 
@@ -911,8 +919,9 @@ class SyncResultDto {
 
   int stitched;
 
-  /// Названий, ставших известными уже после решения. Ключевой показатель §21 п. 4:
-  /// если подпись досылается, правила по названию на таких звонках работать не могут.
+  /// Названий, ставших известными уже после решения, любого происхождения. Показатель §21 п. 4
+  /// считается не здесь: узнать, дослал ли название оператор или диалер, по системному журналу
+  /// нельзя (см. `CallLogSyncer.lateNameSource`).
   int lateNames;
 
   List<Object?> _toList() {
@@ -1458,6 +1467,8 @@ class ObservationReportDto {
     required this.withSignature,
     required this.withoutName,
     required this.lateNames,
+    required this.lateSignatures,
+    required this.namesAtDecision,
     required this.hiddenNumbers,
     required this.coldStarts,
     required this.watchdogFired,
@@ -1479,8 +1490,19 @@ class ObservationReportDto {
 
   int withoutName;
 
-  /// Сколько названий стало известно уже после решения — ключевой показатель §21 п. 4.
+  /// Сколько названий стало известно уже после решения — любого происхождения, включая имена
+  /// из телефонной книги.
   int lateNames;
+
+  /// Из них операторских подписей. Отдельно от [lateNames], потому что именно это отвечает
+  /// на §21 п. 4: имя «Мама», подставленное системой позже, к поведению оператора отношения
+  /// не имеет. Источник — только собственное наблюдение: происхождение названия из системного
+  /// журнала неустановимо.
+  int lateSignatures;
+
+  /// Названий, известных **в момент решения**. Поздние сюда не входят: раньше их считали
+  /// вместе, и сводка утверждала «название было» про звонок, где его не было.
+  int namesAtDecision;
 
   int hiddenNumbers;
 
@@ -1511,6 +1533,8 @@ class ObservationReportDto {
       withSignature,
       withoutName,
       lateNames,
+      lateSignatures,
+      namesAtDecision,
       hiddenNumbers,
       coldStarts,
       watchdogFired,
@@ -1537,17 +1561,19 @@ class ObservationReportDto {
       withSignature: result[2]! as int,
       withoutName: result[3]! as int,
       lateNames: result[4]! as int,
-      hiddenNumbers: result[5]! as int,
-      coldStarts: result[6]! as int,
-      watchdogFired: result[7]! as int,
-      latencyP50: result[8]! as int,
-      latencyP95: result[9]! as int,
-      latencyMax: result[10]! as int,
-      nameSources: (result[11]! as List<Object?>).cast<BucketDto>(),
-      networkTypes: (result[12]! as List<Object?>).cast<BucketDto>(),
-      volte: (result[13]! as List<Object?>).cast<BucketDto>(),
-      extrasKeys: (result[14]! as List<Object?>).cast<BucketDto>(),
-      signatures: (result[15]! as List<Object?>).cast<SignatureDto>(),
+      lateSignatures: result[5]! as int,
+      namesAtDecision: result[6]! as int,
+      hiddenNumbers: result[7]! as int,
+      coldStarts: result[8]! as int,
+      watchdogFired: result[9]! as int,
+      latencyP50: result[10]! as int,
+      latencyP95: result[11]! as int,
+      latencyMax: result[12]! as int,
+      nameSources: (result[13]! as List<Object?>).cast<BucketDto>(),
+      networkTypes: (result[14]! as List<Object?>).cast<BucketDto>(),
+      volte: (result[15]! as List<Object?>).cast<BucketDto>(),
+      extrasKeys: (result[16]! as List<Object?>).cast<BucketDto>(),
+      signatures: (result[17]! as List<Object?>).cast<SignatureDto>(),
     );
   }
 
@@ -1565,6 +1591,8 @@ class ObservationReportDto {
         _deepEquals(withSignature, other.withSignature) &&
         _deepEquals(withoutName, other.withoutName) &&
         _deepEquals(lateNames, other.lateNames) &&
+        _deepEquals(lateSignatures, other.lateSignatures) &&
+        _deepEquals(namesAtDecision, other.namesAtDecision) &&
         _deepEquals(hiddenNumbers, other.hiddenNumbers) &&
         _deepEquals(coldStarts, other.coldStarts) &&
         _deepEquals(watchdogFired, other.watchdogFired) &&
@@ -1584,7 +1612,7 @@ class ObservationReportDto {
 
   @override
   String toString() {
-    return 'ObservationReportDto(periodDays: $periodDays, checks: $checks, withSignature: $withSignature, withoutName: $withoutName, lateNames: $lateNames, hiddenNumbers: $hiddenNumbers, coldStarts: $coldStarts, watchdogFired: $watchdogFired, latencyP50: $latencyP50, latencyP95: $latencyP95, latencyMax: $latencyMax, nameSources: $nameSources, networkTypes: $networkTypes, volte: $volte, extrasKeys: $extrasKeys, signatures: $signatures)';
+    return 'ObservationReportDto(periodDays: $periodDays, checks: $checks, withSignature: $withSignature, withoutName: $withoutName, lateNames: $lateNames, lateSignatures: $lateSignatures, namesAtDecision: $namesAtDecision, hiddenNumbers: $hiddenNumbers, coldStarts: $coldStarts, watchdogFired: $watchdogFired, latencyP50: $latencyP50, latencyP95: $latencyP95, latencyMax: $latencyMax, nameSources: $nameSources, networkTypes: $networkTypes, volte: $volte, extrasKeys: $extrasKeys, signatures: $signatures)';
   }
 }
 

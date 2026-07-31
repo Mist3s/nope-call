@@ -394,7 +394,10 @@ class _RuleTile extends StatelessWidget {
         '${Labels.target(rule.targetType)} · '
         // Неразрывный пробел склеивает предлог со шаблоном: иначе «с» и «на»
         // остаются висеть в конце строки, а шаблон уезжает на следующую.
-        '${Labels.matchType(rule.matchType)} «${rule.pattern}»'
+        // Шаблона может не быть вовсе: у правила «есть в контактах» сравнивать нечего,
+        // и пустые кавычки «» читались как потерянное значение.
+        '${Labels.matchType(rule.matchType)}'
+        '${rule.pattern.isEmpty ? '' : ' «${rule.pattern}»'}'
         '${rule.matchCount > 0 ? ' · сработало ${rule.matchCount}' : ''}',
         maxLines: 2,
         overflow: TextOverflow.ellipsis,

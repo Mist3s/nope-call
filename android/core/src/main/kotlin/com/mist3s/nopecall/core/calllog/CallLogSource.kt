@@ -23,10 +23,10 @@ public data class CallLogRow(
 public interface CallLogSource {
     /**
      * @param sinceMillis нижняя граница по времени звонка
-     * @param afterDate курсор: только записи новее этой метки. `null` — с начала.
-     * @return страница записей в порядке возрастания времени
+     * @param after курсор предыдущей страницы. `null` — с начала.
+     * @return страница записей в порядке возрастания пары «время, идентификатор»
      */
-    public fun query(sinceMillis: Long, afterDate: Long?, limit: Int): List<CallLogRow>
+    public fun query(sinceMillis: Long, after: CallLogCursor?, limit: Int): List<CallLogRow>
 
     /** Есть ли доступ. Без него зеркало не наполняется, и интерфейс обязан это объяснять. */
     public fun isAvailable(): Boolean
@@ -34,13 +34,24 @@ public interface CallLogSource {
     public companion object {
         /** Источника нет: разрешение не выдано. */
         public val NONE: CallLogSource = object : CallLogSource {
-            override fun query(sinceMillis: Long, afterDate: Long?, limit: Int): List<CallLogRow> =
+            override fun query(sinceMillis: Long, after: CallLogCursor?, limit: Int): List<CallLogRow> =
                 emptyList()
 
             override fun isAvailable(): Boolean = false
         }
     }
 }
+
+/**
+ * Курсор постраничного обхода: **пара**, а не одно время.
+ *
+ * Одного времени недостаточно: в системном журнале встречаются записи с равным `DATE`
+ * (на реальном телефоне нашлись две таких пары). При строгом «новее метки» запись на границе
+ * страницы выпадала молча, а при нестрогом курсор мог не сдвинуться вовсе, если вся страница
+ * заполнена одним временем. Пара «время, идентификатор» строго возрастает всегда — значит
+ * ни потерь, ни зацикливания.
+ */
+public data class CallLogCursor(val dateMillis: Long, val systemId: Long)
 
 /**
  * Типы записей системного журнала (ТЗ §7.4).

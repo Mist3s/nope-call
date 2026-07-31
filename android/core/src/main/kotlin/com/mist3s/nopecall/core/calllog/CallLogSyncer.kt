@@ -1,5 +1,6 @@
 package com.mist3s.nopecall.core.calllog
 
+import com.mist3s.nopecall.core.facts.ContactMembership
 import com.mist3s.nopecall.core.storage.NopeCallDatabase
 import com.mist3s.nopecall.engine.NameCanonizer
 import com.mist3s.nopecall.engine.PhoneNumberNormalizer
@@ -42,6 +43,14 @@ public class CallLogSyncer(
      */
     private val onLateName: (occurredAt: Long, digits: String, nameRaw: String, nameFold: String) -> Unit =
         { _, _, _, _ -> },
+    /**
+     * Принадлежность номера телефонной книге — чтобы отличить имя контакта от названия от сети.
+     *
+     * По умолчанию «не знаю»: синхронизатор не решает за вызывающего, есть ли у него индекс
+     * и разрешение. «Не знаю» здесь безопаснее ложного «нет в книге»: последнее превратило бы
+     * имя контакта в операторскую подпись и снова испортило бы главный показатель.
+     */
+    private val contacts: ContactMembership = ContactMembership.UNKNOWN,
 ) {
     public suspend fun sync(pageSize: Int = PAGE_SIZE, maxPages: Int = MAX_PAGES): SyncResult {
         if (!source.isAvailable()) return SyncResult.UNAVAILABLE
@@ -52,18 +61,26 @@ public class CallLogSyncer(
         val since = if (watermark == null) 0L else watermark - OVERLAP_MS
 
         var fetched = 0
-        var cursor: Long? = null
+        var cursor: CallLogCursor? = null
         val syncedAt = now()
 
-        repeat(maxPages) {
-            val page = source.query(since, cursor, pageSize)
-            if (page.isEmpty()) return@repeat
-            for (row in page) {
+        // `while` с выходом, а не `repeat`: `return@repeat` продолжает обход, а не прекращает
+        // его, и после последней страницы уходило ещё несколько пустых запросов к провайдеру.
+        var page = 0
+        while (page < maxPages) {
+            val rows = source.query(since, cursor, pageSize)
+            if (rows.isEmpty()) break
+
+            for (row in rows) {
                 upsert(row, syncedAt)
                 fetched++
             }
-            cursor = page.last().dateMillis
-            if (page.size < pageSize) return@repeat
+
+            // Курсор — пара «время, идентификатор». Она строго возрастает даже там, где время
+            // повторяется, поэтому обход и не теряет записи, и не зацикливается.
+            rows.last().let { cursor = CallLogCursor(it.dateMillis, it.systemId) }
+            if (rows.size < pageSize) break
+            page++
         }
 
         val stitch = stitch()
@@ -97,9 +114,10 @@ public class CallLogSyncer(
      *
      * @return пара «сшито, дописано поздних имён»
      *
-     * Позднее имя — это не мелочь, а **главный измеряемый показатель** проекта: если подпись
-     * появилась в системном журнале, но её не было в момент проверки, значит оператор досылает
-     * её после решения, и правила по названию на таких звонках работать не могут (ТЗ §21 п. 4).
+     * Позднее имя означает ровно одно: в момент проверки названия у нас **не было**, и правила
+     * по названию на таком звонке сработать не могли. Вывод «значит подпись дослал оператор»
+     * отсюда не следует: строку зеркала пишет система, об источнике названия она не сообщает
+     * (см. [lateNameSource]).
      */
     private suspend fun stitch(): Pair<Int, Int> {
         var stitched = 0
@@ -125,17 +143,51 @@ public class CallLogSyncer(
             val name = match.name
             if (name != null && event.nameRaw.isNullOrEmpty()) {
                 val fold = NameCanonizer.canonize(name).whole.fold
-                db.events().attachLateName(eventId = event.id, nameRaw = name, nameFold = fold)
+                db.events().attachLateName(
+                    eventId = event.id,
+                    nameRaw = name,
+                    nameFold = fold,
+                    nameSource = lateNameSource(event.e164),
+                )
                 lateNames++
-                // Связанная запись в поток A: прямое доказательство того, что подпись
-                // досылается после решения, — то есть ответ на главный вопрос §21 п. 4.
+                // Связанная запись в поток A: фиксирует, что в момент решения названия не было,
+                // а позже оно нашлось в системном журнале. Кто его передал — из этого не следует.
                 runCatching { onLateName(event.occurredAt, event.digits, name, fold) }
             }
         }
         return stitched to lateNames
     }
 
+    /**
+     * Откуда пришло позднее название (ТЗ §7.3, §21 п. 4).
+     *
+     * `CallLog.CACHED_NAME` — имя контакта, если номер есть в телефонной книге. Без этого
+     * различения показатель «оператор досылает подпись» считал подписью имя «Мама» — так
+     * и случилось на реальном телефоне.
+     *
+     * Обратный вывод сделать **нельзя**: отсутствие номера в книге не доказывает, что название
+     * пришло от сети. Данные с Pixel 3a: у `+7952…` («POChTA Ros.: dostavka») `CACHED_NAME`
+     * заполнен у звонков в 08:33 и 08:36 и пуст у 08:20 и 08:37, а звонилка показывает одно
+     * и то же название у всех четырёх. Отображаемое имя берётся не из этого столбца, поэтому
+     * ни его наличие, ни его отсутствие не говорит об источнике названия.
+     *
+     * Поэтому исходов два: книга подтверждена — [SOURCE_CONTACTS], иначе источник **не
+     * установлен**. Показатель §21 п. 4 может опираться только на собственное наблюдение
+     * в `onScreenCall`, а не на зеркало.
+     */
+    private fun lateNameSource(e164: String?): String =
+        if (contacts.contains(e164) == true) SOURCE_CONTACTS else SOURCE_UNKNOWN
+
     public companion object {
+        /** Имя из телефонной книги: подписью не является и в показатель §21 п. 4 не идёт. */
+        public const val SOURCE_CONTACTS: String = "CONTACTS"
+
+        /**
+         * Источник не установлен: либо книгу проверить не удалось, либо номера в ней нет —
+         * а это, в отличие от наличия, ничего о происхождении названия не говорит.
+         */
+        public const val SOURCE_UNKNOWN: String = "SYSTEM_LOG"
+
         public const val PAGE_SIZE: Int = 500
 
         /** Предел страниц за один проход: первичная выгрузка не должна работать бесконечно. */

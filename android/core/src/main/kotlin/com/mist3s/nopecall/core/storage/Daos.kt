@@ -162,8 +162,20 @@ public interface ScreeningEventDao {
     @Query("SELECT MAX(occurredAt) FROM screening_events")
     public suspend fun lastEventAt(): Long?
 
-    /** Доля звонков с операторской подписью — показатель для диагностики (ТЗ §7.7.5). */
-    @Query("SELECT COUNT(*) FROM screening_events WHERE nameSource IN ('CNAP','CNAP_OPERATOR_LABEL') AND occurredAt >= :since")
+    /**
+     * Звонков с операторской подписью **в момент проверки** (ТЗ §7.7.5).
+     *
+     * Поздние названия исключены: подпись, дошедшая после решения, на решение уже не влияла,
+     * и складывать её с полученными вовремя нельзя — иначе показатель обещает работоспособность
+     * правил по названию там, где её нет.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM screening_events
+        WHERE occurredAt >= :since AND nameSource IN ('CNAP','CNAP_OPERATOR_LABEL')
+          AND (nameLate IS NULL OR nameLate = 0)
+        """
+    )
     public suspend fun withSignatureSince(since: Long): Int
 
     @Query("DELETE FROM screening_events WHERE occurredAt < :before")
@@ -207,10 +219,25 @@ public interface ScreeningEventDao {
     )
     public suspend fun byReason(since: Long): List<Bucket>
 
+    /**
+     * Разбивка по источнику названия. Поздние названия выделены отдельными ведрами: для вопроса
+     * «работают ли правила по названию» важно не только откуда название, но и успело ли оно.
+     */
     @Query(
         """
-        SELECT nameSource AS bucket, COUNT(*) AS total FROM screening_events
-        WHERE occurredAt >= :since GROUP BY nameSource ORDER BY total DESC
+        SELECT
+            CASE
+                WHEN nameLate = 1 AND nameSource = 'CONTACTS' THEN 'LATE_CONTACTS'
+                -- LATE_CNAP пока не встречается: позднее название приходит только из зеркала,
+                -- а оно подписью не помечается. Ветка оставлена, чтобы будущий источник
+                -- не потерялся внутри LATE_UNKNOWN.
+                WHEN nameLate = 1 AND nameSource IN ('CNAP','CNAP_OPERATOR_LABEL') THEN 'LATE_CNAP'
+                WHEN nameLate = 1 THEN 'LATE_UNKNOWN'
+                ELSE nameSource
+            END AS bucket,
+            COUNT(*) AS total
+        FROM screening_events
+        WHERE occurredAt >= :since GROUP BY bucket ORDER BY total DESC
         """
     )
     public suspend fun byNameSource(since: Long): List<Bucket>
@@ -256,14 +283,44 @@ public interface ScreeningEventDao {
     )
     public suspend fun hiddenNumbersSince(since: Long): Int
 
-    /** Доля подписей, досланных **после** решения — ключевой показатель §21 п. 4. */
+    /**
+     * Операторских подписей, досланных **после** решения (ТЗ §21 п. 4).
+     *
+     * Сейчас тождественно ноль, и это осознанно. Единственный писатель `nameLate` — сшивка
+     * с зеркалом, а из зеркала источник названия не выводится, поэтому пары «`nameLate` = 1
+     * и `CNAP`» не возникает. Чтобы показатель ожил, нужен собственный канал наблюдения
+     * (обновления `Call.Details` после ответа), которого у `CallScreeningService` нет.
+     *
+     * Запрос оставлен под будущий канал. Интерфейс обязан показывать «не измеряется», а не
+     * «0 %»: ноль читается как «оператор подпись не досылает», то есть как измеренный факт.
+     */
     @Query(
         """
         SELECT COUNT(*) FROM screening_events
-        WHERE occurredAt >= :since AND nameSource = 'SYSTEM_LOG'
+        WHERE occurredAt >= :since AND nameLate = 1
+          AND nameSource IN ('CNAP','CNAP_OPERATOR_LABEL')
         """
     )
+    public suspend fun lateSignaturesSince(since: Long): Int
+
+    /** Поздних названий любого происхождения — включая имена из книги и неустановленные. */
+    @Query("SELECT COUNT(*) FROM screening_events WHERE occurredAt >= :since AND nameLate = 1")
     public suspend fun lateNamesSince(since: Long): Int
+
+    /**
+     * Названий, известных **в момент решения**: источник есть и оно не дописано позже.
+     *
+     * Раньше это считалось как «всё, кроме NONE», и позднее название попадало в число
+     * известных на момент проверки — то есть показатель утверждал ровно обратное факту.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM screening_events
+        WHERE occurredAt >= :since AND nameSource <> 'NONE'
+          AND (nameLate IS NULL OR nameLate = 0)
+        """
+    )
+    public suspend fun namesAtDecisionSince(since: Long): Int
 
     @Query(
         """
@@ -294,11 +351,24 @@ public interface ScreeningEventDao {
     @Query(
         """
         UPDATE screening_events
-        SET nameRaw = :nameRaw, nameFold = :nameFold, nameSource = 'SYSTEM_LOG'
+        SET nameRaw = :nameRaw, nameFold = :nameFold,
+            nameSource = :nameSource, nameLate = 1
         WHERE id = :eventId AND (nameRaw IS NULL OR nameRaw = '')
         """
     )
-    public suspend fun attachLateName(eventId: Long, nameRaw: String, nameFold: String)
+    public suspend fun attachLateName(
+        eventId: Long,
+        nameRaw: String,
+        nameFold: String,
+        /**
+         * Откуда название. Исходов **два**: `CONTACTS` — номер подтверждён в телефонной книге,
+         * значит системный журнал отдал имя контакта; `SYSTEM_LOG` — источник **не установлен**.
+         *
+         * Второй случай покрывает и «книгу проверить не удалось», и «номера в книге нет»:
+         * последнее о происхождении названия не говорит ничего (ТЗ §7.3).
+         */
+        nameSource: String,
+    )
 }
 
 @Dao
@@ -415,6 +485,33 @@ public interface CallLogMirrorDao {
         """
     )
     public suspend fun digitsForPreview(limit: Int): List<String>
+
+    /**
+     * Названия для предпросмотра правил по названию — те же фильтры, что у [digitsForPreview].
+     *
+     * Отдаётся **дословное** название, а не `nameFold`: правилу по названию нужны и токены,
+     * и разбор на наименование с категорией, а в зеркале их нет. Канонизация выполняется
+     * на месте тем же `NameCanonizer`, которым канонизируются события, — то есть подсчёт
+     * остаётся точным, а не приблизительным.
+     *
+     * Без этого предпросмотр говорил «таких звонков нет» про звонок, название которого
+     * пользователь видит в журнале прямо сейчас: подписи организаций живут почти целиком
+     * в зеркале, потому что `CallScreeningService` их в момент проверки обычно не получает.
+     */
+    @Query(
+        """
+        SELECT name FROM call_log_mirror
+        WHERE hiddenLocally = 0
+          AND name IS NOT NULL
+          AND name <> ''
+          AND type IN ('INCOMING','MISSED','BLOCKED','REJECTED')
+          AND systemId NOT IN (
+              SELECT matchedSystemId FROM screening_events WHERE matchedSystemId IS NOT NULL
+          )
+        ORDER BY startedAt DESC LIMIT :limit
+        """
+    )
+    public suspend fun namesForPreview(limit: Int): List<String>
 }
 
 /**
@@ -462,6 +559,7 @@ public interface JournalFeedDao {
                     e.nameSource,
                     CASE WHEN m.name IS NOT NULL THEN 'SYSTEM_LOG' ELSE 'NONE' END
                 ) AS nameSource,
+                e.nameLate AS nameLate,
                 e.action AS decisionAction,
                 e.reason AS reason,
                 e.matchedRuleId AS matchedRuleId,
@@ -480,7 +578,7 @@ public interface JournalFeedDao {
             UNION ALL
             SELECT
                 1, e.id, e.occurredAt, e.id, NULL,
-                e.rawNumber, e.digits, e.e164, e.nameRaw, e.nameFold, e.nameSource,
+                e.rawNumber, e.digits, e.e164, e.nameRaw, e.nameFold, e.nameSource, e.nameLate,
                 e.action, e.reason, e.matchedRuleId, e.matchedRuleTitle, e.latencyMs,
                 e.degradations, NULL,
                 CASE WHEN e.action IN ('REJECT','DROP') THEN 'BLOCKED' ELSE 'INCOMING' END,
@@ -509,7 +607,12 @@ public interface JournalFeedDao {
           AND (:nameQuery IS NULL OR nameFold LIKE '%' || :nameQuery || '%')
           AND (
                 :signature IS NULL
-                OR (CASE WHEN nameSource IN ('CNAP','CNAP_OPERATOR_LABEL') THEN 1 ELSE 0 END) = :signature
+                OR (
+                    CASE
+                        WHEN nameSource IN ('CNAP','CNAP_OPERATOR_LABEL') AND nameLate IS NOT 1
+                        THEN 1 ELSE 0
+                    END
+                ) = :signature
               )
           AND (:ruleId IS NULL OR matchedRuleId = :ruleId)
           AND (:sim IS NULL OR phoneAccountId = :sim)

@@ -29,6 +29,13 @@ public data class JournalItem(
     val phoneAccountId: String?,
     /** Была ли операторская подпись. Отдельно, потому что это ключевой показатель (ТЗ §7.7.5). */
     val hadSignature: Boolean,
+    /**
+     * Название стало известно **после** решения (ТЗ §7.3).
+     *
+     * Показывается в карточке: без этого «телефонная книга» читается как «имя было в момент
+     * проверки», хотя по такому звонку правила по названию не работали.
+     */
+    val nameLate: Boolean,
 ) {
     public val blockedByUs: Boolean
         get() = action == "REJECT" || action == "DROP"
@@ -115,7 +122,8 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             totalEvents = db.events().count(),
             lastEventAt = db.events().lastEventAt(),
             withSignatureLast100 = recent.count {
-                it.nameSource == "CNAP" || it.nameSource == "CNAP_OPERATOR_LABEL"
+                (it.nameSource == "CNAP" || it.nameSource == "CNAP_OPERATOR_LABEL") &&
+                    it.nameLate != true
             },
             checkedLast100 = recent.size,
             mirrorRecords = db.mirror().count(),
@@ -214,13 +222,35 @@ public class JournalRepository(private val db: NopeCallDatabase) {
 
         // Записи зеркала, которым нашего события не нашлось, тоже видны в журнале — значит
         // и в подсчёте они обязаны быть, иначе предпросмотр противоречит тому, что на экране.
-        // Только для правил по номеру: названия в зеркале нет ни в токенах, ни по частям,
-        // и считать по нему «содержит слово» было бы догадкой.
         var mirrorSize = 0
         if (target == "NUMBER") {
             val mirror = db.mirror().digitsForPreview(windowSize)
             mirrorSize = mirror.size
             matched += mirror.count { matches(it, "", matchType, canonicalPattern) }
+        } else {
+            // Названия зеркала канонизируются на месте — тем же движком, которым канонизируются
+            // события, поэтому подсчёт остаётся точным. Хранить разбор в зеркале было бы вторым
+            // источником истины для тех же полей; канонизация пятисот коротких строк вне
+            // горячего пути дешевле, чем расхождение двух копий.
+            val names = db.mirror().namesForPreview(windowSize)
+            mirrorSize = names.size
+            val dictionary = categoryDictionary()
+            matched += names.count { raw ->
+                val forms = NameCanonizer.canonize(raw, dictionary)
+                val text = when (target) {
+                    "NAME_ORG" -> forms.org
+                    "NAME_CATEGORY" -> forms.category
+                    else -> forms.whole
+                }
+                // Токены берутся от подписи целиком, а ограничители по краям — как у события:
+                // «содержит слово» обязано считать одинаково по обоим слоям журнала, иначе
+                // одно и то же правило даёт разные числа в зависимости от того, чья запись.
+                val tokens = forms.whole.tokens
+                    .takeIf { it.isNotEmpty() }
+                    ?.joinToString(" ", prefix = " ", postfix = " ")
+                    .orEmpty()
+                text != null && matches(text.fold, tokens, matchType, canonicalPattern)
+            }
         }
 
         return PreviewResult(
@@ -441,8 +471,20 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         eventId = eventId,
         systemId = systemId,
         phoneAccountId = phoneAccountId,
-        hadSignature = nameSource == "CNAP" || nameSource == "CNAP_OPERATOR_LABEL",
+        // Именно «была в момент проверки»: подпись, дошедшая после решения, на решение
+        // не влияла, и метка о ней вводила бы в заблуждение.
+        hadSignature = (nameSource == "CNAP" || nameSource == "CNAP_OPERATOR_LABEL") &&
+            nameLate != true,
+        nameLate = nameLate == true,
     )
+
+    /**
+     * Словарь корней категорий из настроек — тот же, что используется при разборе подписи
+     * в горячем пути. Иначе предпросмотр разбирал бы название иначе, чем разберёт его звонок.
+     */
+    private suspend fun categoryDictionary(): Set<String> =
+        (db.settings().get(RulesRepository.KEY_CATEGORY_DICT) ?: RulesRepository.DEFAULT_CATEGORY_DICT)
+            .split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
     /** Канонизация введённого пользователем шаблона названия — для предпросмотра. */
     public fun canonizeNamePattern(pattern: String): String = NameCanonizer.canonizePattern(pattern)

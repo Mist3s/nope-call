@@ -517,6 +517,7 @@ internal class JournalApiImpl(
                             nameSource = item.nameSource,
                             blockedByUs = item.blockedByUs,
                             hadSignature = item.hadSignature,
+                            nameLate = item.nameLate,
                             action = item.action,
                             reason = item.reason,
                             latencyMs = item.latencyMs?.toLong(),
@@ -684,6 +685,8 @@ internal class ObservationApiImpl(
                     withSignature = report.withSignature.toLong(),
                     withoutName = report.withoutName.toLong(),
                     lateNames = report.lateNames.toLong(),
+                    lateSignatures = report.lateSignatures.toLong(),
+                    namesAtDecision = report.namesAtDecision.toLong(),
                     hiddenNumbers = report.hiddenNumbers.toLong(),
                     coldStarts = report.coldStarts.toLong(),
                     watchdogFired = report.watchdogFired.toLong(),
@@ -763,7 +766,9 @@ internal class ObservationApiImpl(
         bridge.scope.launch {
             val result = runCatching {
                 CoreGraph.drainPending()
-                val report = CoreGraph.observationReporter.report(REPORT_PERIOD_DAYS)
+                // Сводка строится по окну выгрузки, а не за фиксированные 30 суток:
+                // иначе `summary.txt` и `manifest.json` в одном архиве говорят разное.
+                val report = CoreGraph.observationReporter.report(since = fromAt, until = toAt)
                 val config = CoreGraph.observationStore.config()
                 val exported = CoreGraph.logExporter.export(
                     LogExporter.Request(
@@ -811,10 +816,6 @@ internal class ObservationApiImpl(
         }
     }
 
-    private companion object {
-        /** Период сводки, попадающей в архив. Тот же, что по умолчанию на экране режима. */
-        const val REPORT_PERIOD_DAYS = 30
-    }
 }
 
 /**

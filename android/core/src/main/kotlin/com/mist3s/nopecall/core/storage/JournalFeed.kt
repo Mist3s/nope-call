@@ -26,6 +26,8 @@ public data class JournalFeedRow(
     val name: String?,
     val nameFold: String?,
     val nameSource: String,
+    /** Название дописано после решения (ТЗ §7.3). `null` — событие записано до появления флага. */
+    val nameLate: Boolean?,
     /**
      * Псевдоним в запросе — `decisionAction`, а не `action`: `ACTION` в грамматике SQL,
      * которой разбирает запросы Room, зарезервировано (`ON DELETE NO ACTION`), и как имя

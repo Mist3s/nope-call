@@ -16,7 +16,6 @@ import 'package:pigeon/pigeon.dart';
     dartPackageName: 'nope_call',
   ),
 )
-
 /// Состояние настройки. `blockingActive` намеренно отдельно от `hasRole`:
 /// без роли сервис не вызывается вообще, и обещать «блокировка активна» нельзя (ТЗ §18 п. 2).
 class SetupStatus {
@@ -136,6 +135,7 @@ class JournalItemDto {
     required this.nameSource,
     required this.blockedByUs,
     required this.hadSignature,
+    required this.nameLate,
     this.action,
     this.reason,
     this.latencyMs,
@@ -163,6 +163,10 @@ class JournalItemDto {
   String nameSource;
   bool blockedByUs;
   bool hadSignature;
+
+  /// Название стало известно уже после решения: правила по названию на этом звонке
+  /// сработать не могли, и показывать его как «было» нельзя.
+  bool nameLate;
 
   /// `null` — звонок проверяли не мы: запись пришла из системного журнала.
   String? action;
@@ -261,8 +265,9 @@ class SyncResultDto {
   int fetched;
   int stitched;
 
-  /// Названий, ставших известными уже после решения. Ключевой показатель §21 п. 4:
-  /// если подпись досылается, правила по названию на таких звонках работать не могут.
+  /// Названий, ставших известными уже после решения, любого происхождения. Показатель §21 п. 4
+  /// считается не здесь: узнать, дослал ли название оператор или диалер, по системному журналу
+  /// нельзя (см. `CallLogSyncer.lateNameSource`).
   int lateNames;
 }
 
@@ -420,7 +425,11 @@ abstract class RulesApi {
 @HostApi()
 abstract class JournalApi {
   @async
-  JournalPageDto page(JournalFilterDto filter, JournalCursorDto? cursor, int limit);
+  JournalPageDto page(
+    JournalFilterDto filter,
+    JournalCursorDto? cursor,
+    int limit,
+  );
 
   @async
   SummaryDto summary();
@@ -534,6 +543,8 @@ class ObservationReportDto {
     required this.withSignature,
     required this.withoutName,
     required this.lateNames,
+    required this.lateSignatures,
+    required this.namesAtDecision,
     required this.hiddenNumbers,
     required this.coldStarts,
     required this.watchdogFired,
@@ -552,8 +563,19 @@ class ObservationReportDto {
   int withSignature;
   int withoutName;
 
-  /// Сколько названий стало известно уже после решения — ключевой показатель §21 п. 4.
+  /// Сколько названий стало известно уже после решения — любого происхождения, включая имена
+  /// из телефонной книги.
   int lateNames;
+
+  /// Из них операторских подписей. Отдельно от [lateNames], потому что именно это отвечает
+  /// на §21 п. 4: имя «Мама», подставленное системой позже, к поведению оператора отношения
+  /// не имеет. Источник — только собственное наблюдение: происхождение названия из системного
+  /// журнала неустановимо.
+  int lateSignatures;
+
+  /// Названий, известных **в момент решения**. Поздние сюда не входят: раньше их считали
+  /// вместе, и сводка утверждала «название было» про звонок, где его не было.
+  int namesAtDecision;
   int hiddenNumbers;
   int coldStarts;
   int watchdogFired;

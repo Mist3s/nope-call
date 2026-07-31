@@ -9,6 +9,7 @@ import com.mist3s.nopecall.core.storage.JournalRepository.ContactsState
 import com.mist3s.nopecall.core.storage.NopeCallDatabase
 import com.mist3s.nopecall.core.storage.RuleEntity
 import com.mist3s.nopecall.core.storage.ScreeningEventEntity
+import com.mist3s.nopecall.engine.NameCanonizer
 import com.mist3s.nopecall.engine.NumberForms
 import com.mist3s.nopecall.engine.RuFastPathNormalizer
 import com.mist3s.nopecall.engine.RuleSnapshot
@@ -317,6 +318,102 @@ class RulePreviewTest {
             0,
             runBlocking { journal.previewMatches("NUMBER", "PREFIX", "7495") }.allowRulesCovered,
         )
+    }
+
+    private suspend fun mirror(
+        systemId: Long,
+        at: Long,
+        digits: String = "74951234567",
+        name: String? = null,
+        type: String = "INCOMING",
+    ) = db.mirror().upsert(
+        systemId = systemId,
+        startedAt = at,
+        rawNumber = "+$digits",
+        digits = digits,
+        e164 = "+$digits",
+        name = name,
+        nameFold = name?.let { NameCanonizer.canonize(it).whole.fold },
+        type = type,
+        durationSeconds = 0,
+        phoneAccountId = null,
+        syncedAt = at,
+        canonVersion = RuleSnapshot.CURRENT_CANON_VERSION,
+    )
+
+    // --- предпросмотр по названию считает и зеркало --------------------------------------------
+
+    @Test
+    fun `правило по названию считает подписи из зеркала`() {
+        // На реальном телефоне подписи организаций живут почти целиком в зеркале: в момент
+        // проверки система их не отдаёт. Предпросмотр, считающий только свои события, говорил
+        // «таких звонков нет» про звонок, название которого видно в журнале на том же экране.
+        runBlocking {
+            mirror(1, NOW - 1000, digits = "79520560329", name = "POChTA Ros.: dostavka")
+            mirror(2, NOW - 2000, digits = "79919864925", name = "Agent Rostelecom IT Link Sol")
+            mirror(3, NOW - 3000, digits = "79001112233", name = "OOO Magnum: dostavka")
+        }
+
+        val preview = runBlocking {
+            journal.previewMatches("NAME_CATEGORY", "TOKEN", "dostavka")
+        }
+        assertEquals(2, preview.count, "две записи с категорией «dostavka» — обе из зеркала")
+    }
+
+    @Test
+    fun `русский шаблон находит подпись в транслите из зеркала`() {
+        runBlocking { mirror(1, NOW - 1000, name = "OOO Romashka: reklama") }
+
+        val preview = runBlocking {
+            journal.previewMatches("NAME_CATEGORY", "TOKEN", "reklama")
+        }
+        assertEquals(1, preview.count)
+    }
+
+    @Test
+    fun `сшитая запись зеркала не считается дважды`() {
+        runBlocking {
+            val eventId = db.events().insert(
+                ScreeningEventEntity(
+                    occurredAt = NOW - 1000,
+                    rawNumber = "+74951234567",
+                    digits = "74951234567",
+                    e164 = "+74951234567",
+                    presentation = "ALLOWED",
+                    nameRaw = "OOO Romashka: reklama",
+                    nameFold = "ooromashkareklama",
+                    nameTokens = " ooo romashka reklama ",
+                    orgFold = "ooromashka",
+                    categoryFold = "reklama",
+                    nameSource = "CNAP",
+                    action = "ALLOW",
+                    reason = "DEFAULT_ACTION",
+                    latencyMs = 10,
+                    budgetMs = 1500,
+                    canonVersion = RuleSnapshot.CURRENT_CANON_VERSION,
+                )
+            )
+            mirror(1, NOW - 1000, name = "OOO Romashka: reklama")
+            db.events().attachSystemId(eventId, 1)
+        }
+
+        val preview = runBlocking {
+            journal.previewMatches("NAME_CATEGORY", "TOKEN", "reklama")
+        }
+        assertEquals(1, preview.count, "звонок один, а записей о нём две")
+    }
+
+    @Test
+    fun `исходящие и скрытые записи зеркала в подсчёт по названию не идут`() {
+        runBlocking {
+            mirror(1, NOW - 1000, name = "OOO Romashka: reklama", type = "OUTGOING")
+            mirror(2, NOW - 2000, name = "OOO Romashka: reklama", type = "VOICEMAIL")
+        }
+
+        val preview = runBlocking {
+            journal.previewMatches("NAME_CATEGORY", "TOKEN", "reklama")
+        }
+        assertEquals(0, preview.count, "правило к таким записям не применяется")
     }
 
     // --- регресс: подсчёт по журналу ----------------------------------------------------------

@@ -341,19 +341,22 @@ class JournalFeedTest {
     }
 
     @Test
-    fun `предпросмотр по названию считает только наши проверки`() {
-        // В зеркале названия нет ни в токенах, ни по частям: считать по нему «содержит слово»
-        // означало бы догадываться.
+    fun `предпросмотр по названию считает оба слоя журнала`() {
+        // Раньше считались только свои проверки: считалось, что разбор названия в зеркале
+        // недоступен. Он доступен — название канонизируется на месте тем же движком. А цена
+        // старого решения оказалась высокой: подписи организаций живут почти целиком в зеркале,
+        // потому что в момент проверки система их не отдаёт, и предпросмотр отвечал
+        // «таких звонков нет» про звонок, видимый на том же экране.
         runBlocking {
             event(
                 at = NOW - 1000,
                 nameRaw = "OOO Romashka",
-                nameFold = "ooo romashka",
+                nameFold = "ooromashka",
                 nameSource = "CNAP",
             )
-            mirror(systemId = 70, at = NOW - 2000, name = "OOO Romashka", nameFold = "ooo romashka")
+            mirror(systemId = 70, at = NOW - 2000, name = "OOO Romashka", nameFold = "ooromashka")
         }
-        assertEquals(1, runBlocking { journal.previewMatches("NAME", "CONTAINS", "romashka") }.count)
+        assertEquals(2, runBlocking { journal.previewMatches("NAME", "CONTAINS", "romashka") }.count)
     }
 
     // --- ретеншен и очистка (ТЗ §7.6) ---------------------------------------------------------
