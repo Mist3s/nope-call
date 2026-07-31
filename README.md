@@ -1,6 +1,6 @@
-![nope-call](branding/github/logo-128.png)
-
 # nope-call
+
+![nope-call](branding/github/social-preview-1280x640.png)
 
 Блокировка входящих звонков по правилам — Android 10 и новее, задел под iOS.
 Раздаётся APK напрямую, без Google Play.
