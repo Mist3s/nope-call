@@ -52,6 +52,23 @@ internal class ScreeningPipeline(
         if (coldStart) flags = flags or Degradation.COLD_START.bit
         if (directBoot()) flags = flags or Degradation.DIRECT_BOOT.bit
 
+        // Исходящий звонок — до всего остального, даже до снимка правил.
+        //
+        // `CallScreeningService` вызывается и для исходящих: платформа отдаёт их тому же
+        // сервису, а `Call.Details.getCallDirection()` существует именно чтобы их различать.
+        // Без этой ветки блокирующее правило совпало бы на номере, который пользователь набрал
+        // сам, — и в журнале появилась бы запись «отклонён» о звонке, который он сделал.
+        // Приложение блокирует входящие; набранный номер не его дело (ТЗ §1.1).
+        //
+        // `null` направления (часть прошивок Android 10) трактуется как входящий: иначе
+        // неизвестное направление отключало бы блокировку целиком.
+        if (details.callDirection == CALL_DIRECTION_OUTGOING) {
+            return Outcome(
+                Decision.allow(DecisionReason.OUTGOING_CALL).withDegradations(flags),
+                facts = null,
+            )
+        }
+
         val snapshot = snapshots.current()
         if (snapshot == null) {
             // Снимка нет или он повреждён. Блокировать нечем — разрешаем и записываем причину.
@@ -93,6 +110,13 @@ internal class ScreeningPipeline(
          * каждое в список — плата за диагностику из бюджета звонка.
          */
         const val TRACE_LIMIT = 200
+
+        /**
+         * `Call.Details.DIRECTION_OUTGOING`. Числом, а не ссылкой на константу Telecom:
+         * значение зафиксировано платформой, а горячий путь не должен зависеть от классов,
+         * которые до разблокировки экрана могут быть недоступны.
+         */
+        const val CALL_DIRECTION_OUTGOING = 1
     }
 }
 

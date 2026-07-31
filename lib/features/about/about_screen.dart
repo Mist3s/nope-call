@@ -96,7 +96,10 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Установлена версия ${status?.currentVersion ?? '—'}',
+                    // «0.1.0+1» — это версия и код сборки, склеенные через плюс так, как их
+                    // держит pubspec. Пользователю плюс читается как опечатка, а код сборки
+                    // всё равно нужен поддержке, поэтому он назван словом.
+                    'Установлена версия ${_readable(status?.currentVersion)}',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -145,6 +148,15 @@ class _AboutScreenState extends State<AboutScreen> {
       ),
     );
   }
+}
+
+/// `0.1.0+1` → `0.1.0 (сборка 1)`. Если формат окажется другим — отдаём как есть,
+/// потому что выдумывать за него нельзя.
+String _readable(String? version) {
+  if (version == null || version.isEmpty) return '—';
+  final plus = version.indexOf('+');
+  if (plus <= 0 || plus == version.length - 1) return version;
+  return '${version.substring(0, plus)} (сборка ${version.substring(plus + 1)})';
 }
 
 class _UpdateCard extends StatelessWidget {

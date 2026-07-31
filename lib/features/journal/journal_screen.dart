@@ -4,6 +4,7 @@ import '../../data/nope_call_api.g.dart';
 import '../../data/repository.dart';
 import '../../widgets/async_view.dart';
 import 'call_card.dart';
+import 'journal_visuals.dart';
 import 'journal_filters.dart';
 
 /// Журнал (ТЗ §9.2).
@@ -347,7 +348,7 @@ class _JournalTile extends StatelessWidget {
         ? item.nameRaw!
         : (item.rawNumber.isNotEmpty ? item.rawNumber : 'Скрытый номер');
 
-    final visual = _visualFor(item.kind, scheme);
+    final visual = CallVisual.of(item.kind, scheme);
     final details = <String>[
       formatTime(item.occurredAt),
       Labels.shortKind(item.kind),
@@ -388,27 +389,6 @@ class _JournalTile extends StatelessWidget {
     if (seconds < 60) return '$seconds с';
     return '${seconds ~/ 60} мин ${seconds % 60} с';
   }
-
-  static _Visual _visualFor(String kind, ColorScheme scheme) => switch (kind) {
-    'BLOCKED_BY_APP' => _Visual(Icons.block, scheme.error),
-    'BLOCKED_EXTERNAL' => _Visual(Icons.shield_outlined, scheme.outline),
-    'SILENCED' => _Visual(Icons.notifications_off_outlined, scheme.tertiary),
-    // Пропущенный звонок — не ошибка. Красный в этом списке означает ровно одно:
-    // «заблокировали мы». Иначе взгляд цепляется не за то.
-    'MISSED' => _Visual(Icons.call_missed, scheme.outline),
-    'REJECTED_BY_USER' => _Visual(Icons.call_end_outlined, scheme.outline),
-    'OUTGOING' => _Visual(Icons.call_made, scheme.primary),
-    'VOICEMAIL' => _Visual(Icons.voicemail_outlined, scheme.outline),
-    'INCOMING_ANSWERED' => _Visual(Icons.call_received, scheme.primary),
-    _ => _Visual(Icons.check_circle_outline, scheme.primary),
-  };
-}
-
-class _Visual {
-  const _Visual(this.icon, this.color);
-
-  final IconData icon;
-  final Color color;
 }
 
 class _Footer extends StatelessWidget {

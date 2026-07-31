@@ -292,6 +292,10 @@ public object CoreGraph {
             onLateName = { occurredAt, digits, nameRaw, nameFold ->
                 observation.observeLateName(occurredAt, digits, nameRaw, nameFold)
             },
+            // Индекс контактов отличает имя из книги от названия от сети. Хешей для этого
+            // достаточно: здесь нужна принадлежность конкретного номера, а не сопоставление
+            // шаблона. Без индекса ответ «не знаю», и источник останется неустановленным.
+            contacts = contactIndex,
         )
 
     /** Когда сервис проверки вызывался последний раз. Нужно интерфейсу, чтобы отличить

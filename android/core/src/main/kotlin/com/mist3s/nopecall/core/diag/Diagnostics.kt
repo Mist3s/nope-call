@@ -184,8 +184,12 @@ public class DiagnosticsRepository(
                 )
             },
             nameSources = events.byNameSource(since),
+            // Поздние подписи исключены: на этом экране показатель отвечает на вопрос
+            // «стоит ли вообще строить правила по названию», а для этого важно, была ли
+            // подпись в момент решения.
             withSignatureLast100 = recent.count {
-                it.nameSource == "CNAP" || it.nameSource == "CNAP_OPERATOR_LABEL"
+                (it.nameSource == "CNAP" || it.nameSource == "CNAP_OPERATOR_LABEL") &&
+                    it.nameLate != true
             },
             checkedLast100 = recent.size,
             volte = events.byVolte(since),

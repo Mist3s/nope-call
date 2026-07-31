@@ -8,7 +8,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # `1.2.3` -> versionName, `+45` -> versionCode. versionCode строго возрастает:
 # Android не даёт установить поверх сборку с меньшим значением.
 # MVP по ТЗ §16 — это 1.0.0; до него 0.x.
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ^3.10.4

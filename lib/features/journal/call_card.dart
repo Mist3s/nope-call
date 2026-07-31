@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../data/nope_call_api.g.dart';
 import '../../data/repository.dart';
 import '../../widgets/async_view.dart';
+import 'journal_visuals.dart';
 
 /// Карточка звонка (ТЗ §9.3).
 ///
@@ -33,6 +34,7 @@ class _CallCardScreenState extends State<CallCardScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final visual = CallVisual.of(item.kind, theme.colorScheme);
     final suggestions = _suggestions();
 
     return Scaffold(
@@ -48,12 +50,9 @@ class _CallCardScreenState extends State<CallCardScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(
-                        item.blockedByUs ? Icons.block : Icons.call_received,
-                        color: item.blockedByUs
-                            ? theme.colorScheme.error
-                            : theme.colorScheme.primary,
-                      ),
+                      // Тот же выбор иконки, что и в списке: своя копия расходилась
+                      // с ним — исходящий звонок в карточке выглядел входящим.
+                      Icon(visual.icon, color: visual.color),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
@@ -81,11 +80,13 @@ class _CallCardScreenState extends State<CallCardScreen> {
                   const SizedBox(height: 12),
                   _Field('Когда', formatTime(item.occurredAt)),
                   _Field('Тип записи', Labels.kind(item.kind)),
+                  // «Название», а не «Подпись»: подписью это можно назвать только когда её
+                  // источник установлен, а у записи из системного журнала он неизвестен.
                   if (item.nameRaw?.isNotEmpty == true)
-                    _Field('Подпись', item.nameRaw!),
+                    _Field('Название', item.nameRaw!),
                   _Field(
                     'Название получено',
-                    _nameSourceLabel(item.nameSource),
+                    _nameSourceLabel(item.nameSource, item.nameLate),
                   ),
                   // Решения может не быть вовсе: запись пришла из системного журнала,
                   // а звонок проверяли не мы. Придумывать результат в этом случае нельзя.
@@ -221,13 +222,20 @@ class _CallCardScreenState extends State<CallCardScreen> {
     return result;
   }
 
-  String _nameSourceLabel(String source) => switch (source) {
-    'CNAP' => 'подпись оператора',
-    'CNAP_OPERATOR_LABEL' => 'служебная метка оператора',
-    'CONTACTS' => 'телефонная книга',
-    'SYSTEM_LOG' => 'системный журнал, уже после звонка',
-    _ => 'названия не было',
-  };
+  /// Источник названия. Позднее название помечается всегда: «телефонная книга» без пометки
+  /// читается как «имя было в момент проверки», а правила по названию на таком звонке
+  /// сработать не могли.
+  String _nameSourceLabel(String source, bool late) {
+    final base = switch (source) {
+      'CNAP' => 'подпись оператора',
+      'CNAP_OPERATOR_LABEL' => 'служебная метка оператора',
+      'CONTACTS' => 'телефонная книга',
+      'SYSTEM_LOG' => 'системный журнал, источник не установлен',
+      _ => 'названия не было',
+    };
+    if (!late || source == 'NONE') return base;
+    return '$base, уже после решения';
+  }
 }
 
 class _Suggestion {

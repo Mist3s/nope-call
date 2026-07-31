@@ -81,6 +81,45 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun `миграция 2 в 3 помечает старые системные названия поздними`() {
+        helper.createDatabase(DB_NAME, 2).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO screening_events
+                    (id, occurredAt, rawNumber, digits, presentation, nameRaw, nameSource, action,
+                     reason, degradations, latencyMs, budgetMs, canonVersion)
+                VALUES (1, 1000, '+79118554880', '79118554880', 'ALLOWED', 'Мама', 'SYSTEM_LOG',
+                        'ALLOW', 'DEFAULT_ACTION', 0, 12, 1500, 1),
+                       (2, 2000, '+74951234567', '74951234567', 'ALLOWED', 'OOO Romashka', 'CNAP',
+                        'ALLOW', 'DEFAULT_ACTION', 0, 12, 1500, 1),
+                       (3, 3000, '+74951112233', '74951112233', 'ALLOWED', NULL, 'NONE',
+                        'ALLOW', 'DEFAULT_ACTION', 0, 12, 1500, 1)
+                """.trimIndent()
+            )
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            DB_NAME,
+            3,
+            /* validateDroppedTables = */ true,
+            *NopeCallDatabase.MIGRATIONS,
+        )
+
+        // Записи, дописанные зеркалом до появления флага, узнаваемы по источнику `SYSTEM_LOG`:
+        // они помечаются поздними, но происхождение названия остаётся неустановленным — обратный
+        // вывод «не в книге, значит от оператора» данными не подтверждается.
+        migrated.query("SELECT id, nameLate FROM screening_events ORDER BY id").use { cursor ->
+            assertTrue(cursor.moveToNext())
+            assertEquals(1, cursor.getInt(1), "название из системного журнала пришло позже")
+            assertTrue(cursor.moveToNext())
+            assertTrue(cursor.isNull(1), "своя подпись поздней не помечается")
+            assertTrue(cursor.moveToNext())
+            assertTrue(cursor.isNull(1), "у записи без названия помечать нечего")
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val DB_NAME = "migration-test.db"
     }

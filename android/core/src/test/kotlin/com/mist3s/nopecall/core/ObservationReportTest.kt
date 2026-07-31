@@ -63,6 +63,7 @@ class ObservationReportTest {
         at: Long = NOW - 1000,
         nameRaw: String? = null,
         nameSource: String = "NONE",
+        nameLate: Boolean? = null,
         presentation: String = "ALLOWED",
         latencyMs: Int = 10,
         degradations: Int = 0,
@@ -80,6 +81,7 @@ class ObservationReportTest {
                 nameRaw = nameRaw,
                 nameFold = nameRaw?.lowercase(),
                 nameSource = nameSource,
+                nameLate = nameLate,
                 action = "ALLOW",
                 reason = "DEFAULT_ACTION",
                 degradations = degradations,
@@ -101,17 +103,52 @@ class ObservationReportTest {
         runBlocking {
             event(nameRaw = "Yandex: IT", nameSource = "CNAP")
             event(nameRaw = "OOO Romashka", nameSource = "CNAP")
-            event(nameRaw = "PAO SOVKOMBANK", nameSource = "SYSTEM_LOG")
+            // Подпись дошла после решения — это и есть ответ на §21 п. 4.
+            event(nameRaw = "PAO SOVKOMBANK", nameSource = "CNAP", nameLate = true)
+            // Имя из телефонной книги, узнанное позже. Подписью НЕ является: на реальном
+            // телефоне ровно такие записи давали «оператор досылает подпись в 67 % звонков».
+            event(nameRaw = "Мама", nameSource = "CONTACTS", nameLate = true)
             event()
         }
 
         val report = runBlocking { reporter().report(periodDays = 30) }
-        assertEquals(4, report.checks)
-        assertEquals(2, report.withSignature)
-        assertEquals(1, report.lateNames)
+        assertEquals(5, report.checks)
+        assertEquals(2, report.withSignature, "подпись в момент решения — только две")
+        assertEquals(2, report.namesAtDecision, "поздние названия сюда не входят")
+        assertEquals(2, report.lateNames, "поздних названий два: подпись и имя контакта")
+        assertEquals(1, report.lateSignatures, "но подпись среди них одна")
         assertEquals(1, report.withoutName)
-        assertEquals(0.5, report.signatureShare)
-        assertEquals(0.25, report.lateNameShare)
+        assertEquals(0.4, report.signatureShare)
+        assertEquals(0.2, report.lateSignatureShare)
+    }
+
+    @Test
+    fun `имя из книги, узнанное позже, не считается операторской подписью`() {
+        // Дефект, найденный на реальном телефоне: `CallLog.CACHED_NAME` для номера из книги —
+        // это имя контакта, а показатель «оператор досылает подпись» считал таковой любое
+        // позднее название. Сводка утверждала 67 % там, где подписей не было вовсе.
+        runBlocking {
+            event(nameRaw = "Мама", nameSource = "CONTACTS", nameLate = true)
+            event(nameRaw = "Теща Лена", nameSource = "CONTACTS", nameLate = true)
+            event()
+        }
+
+        val report = runBlocking { reporter().report() }
+        assertEquals(0, report.lateSignatures, "подписей не было ни одной")
+        assertEquals(0.0, report.lateSignatureShare)
+        assertEquals(2, report.lateNames, "но два названия действительно дошли позже")
+        assertEquals(0, report.namesAtDecision, "в момент решения названия не было ни у одного")
+    }
+
+    @Test
+    fun `неустановленный источник позднего названия не идёт в подписи`() {
+        // Так помечены события, записанные до появления флага: задним числом выяснить,
+        // было ли название именем контакта, нельзя, и выдавать его за подпись нельзя тоже.
+        runBlocking { event(nameRaw = "Мама", nameSource = "SYSTEM_LOG", nameLate = true) }
+
+        val report = runBlocking { reporter().report() }
+        assertEquals(0, report.lateSignatures)
+        assertEquals(1, report.lateNames)
     }
 
     @Test
@@ -204,12 +241,20 @@ class ObservationReportTest {
         // на вопрос, а не чтобы писать под него парсер (ТЗ §7.7.3).
         runBlocking {
             event(nameRaw = "Yandex: IT", nameSource = "CNAP")
-            event(nameRaw = "PAO SOVKOMBANK", nameSource = "SYSTEM_LOG")
+            event(nameRaw = "PAO SOVKOMBANK", nameSource = "CNAP", nameLate = true)
+            event(nameRaw = "Мама", nameSource = "CONTACTS", nameLate = true)
         }
         val text = runBlocking { reporter().report() }.toText()
-        assertTrue(text.contains("Проверок: 2"))
-        assertTrue(text.contains("подпись пришла ПОСЛЕ решения: 1"))
+        assertTrue(text.contains("Проверок: 3"))
+        assertTrue(text.contains("подпись оператора ПОСЛЕ решения: 1"), text)
+        assertTrue(
+            text.contains("название дописано позже: 2, из них подпись оператора: 1"),
+            "имя контакта обязано быть отделено от подписи: $text",
+        )
+        // Подписи показываются дословно: ради них режим наблюдения и существует.
         assertTrue(text.contains("Yandex: IT"))
+        // И в разбивке по источнику — по-русски, а не служебным кодом.
+        assertTrue(text.contains("телефонная книга, узнали позже"), text)
     }
 
     private companion object {

@@ -108,24 +108,38 @@ internal class NopeCallScreeningService : CallScreeningService() {
             verificationStatus = runCatching { reader.verificationStatus }.getOrNull(),
         )
 
-        try {
-            CoreGraph.eventSpool.append(
-                ScreeningRecord(
-                    occurredAt = occurredAt,
-                    facts = outcome.facts,
-                    decision = decision,
-                    matchedRuleTitle = null,
-                    budgetMs = session.budgetMs.toInt(),
-                    diagnostics = diagnostics,
+        // Исходящий звонок в журнал проверок не пишется.
+        //
+        // Иначе он попал бы и в «Проверок за период», и в знаменатели показателей подписи,
+        // и в перцентили задержки — то есть измерения оказались бы про звонки, к которым
+        // приложение отношения не имеет. Плюс в журнале появилась бы вторая запись об одном
+        // звонке: строку зеркала об исходящем сшивка не берёт по направлению. Сам факт вызова
+        // сервиса на исходящем виден в техническом логе — там он и нужен.
+        val outgoing = decision.reason == DecisionReason.OUTGOING_CALL
+        if (!outgoing) {
+            try {
+                CoreGraph.eventSpool.append(
+                    ScreeningRecord(
+                        occurredAt = occurredAt,
+                        facts = outcome.facts,
+                        decision = decision,
+                        matchedRuleTitle = null,
+                        budgetMs = session.budgetMs.toInt(),
+                        diagnostics = diagnostics,
+                    )
                 )
-            )
-        } catch (t: Throwable) {
-            Log.w(TAG, "не удалось записать событие", t)
+            } catch (t: Throwable) {
+                Log.w(TAG, "не удалось записать событие", t)
+            }
         }
 
         // Режим наблюдения (ТЗ §7.7.1). Тоже синхронно и по той же причине: сразу после ответа
         // Telecom отвязывается, процесс становится кэшированным, и отложенная запись
         // систематически теряла бы именно те события, ради которых режим существует.
+        //
+        // Исходящие пишутся и здесь: направление в записи есть (`call_direction`), а сам факт
+        // вызова сервиса на исходящем звонке — наблюдение, ради которого режим и существует.
+        // В показатели он не идёт: они считаются по журналу проверок, куда исходящий не попал.
         try {
             CoreGraph.observation.observeCall(
                 CallObservation(

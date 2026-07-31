@@ -502,6 +502,11 @@ data class JournalItemDto (
   val nameSource: String,
   val blockedByUs: Boolean,
   val hadSignature: Boolean,
+  /**
+   * Название стало известно уже после решения: правила по названию на этом звонке
+   * сработать не могли, и показывать его как «было» нельзя.
+   */
+  val nameLate: Boolean,
   /** `null` — звонок проверяли не мы: запись пришла из системного журнала. */
   val action: String? = null,
   val reason: String? = null,
@@ -527,18 +532,19 @@ data class JournalItemDto (
       val nameSource = pigeonVar_list[5] as String
       val blockedByUs = pigeonVar_list[6] as Boolean
       val hadSignature = pigeonVar_list[7] as Boolean
-      val action = pigeonVar_list[8] as String?
-      val reason = pigeonVar_list[9] as String?
-      val latencyMs = pigeonVar_list[10] as Long?
-      val durationSeconds = pigeonVar_list[11] as Long?
-      val e164 = pigeonVar_list[12] as String?
-      val nameRaw = pigeonVar_list[13] as String?
-      val matchedRuleId = pigeonVar_list[14] as Long?
-      val matchedRuleTitle = pigeonVar_list[15] as String?
-      val eventId = pigeonVar_list[16] as Long?
-      val systemId = pigeonVar_list[17] as Long?
-      val phoneAccountId = pigeonVar_list[18] as String?
-      return JournalItemDto(id, sourceRank, occurredAt, kind, rawNumber, nameSource, blockedByUs, hadSignature, action, reason, latencyMs, durationSeconds, e164, nameRaw, matchedRuleId, matchedRuleTitle, eventId, systemId, phoneAccountId)
+      val nameLate = pigeonVar_list[8] as Boolean
+      val action = pigeonVar_list[9] as String?
+      val reason = pigeonVar_list[10] as String?
+      val latencyMs = pigeonVar_list[11] as Long?
+      val durationSeconds = pigeonVar_list[12] as Long?
+      val e164 = pigeonVar_list[13] as String?
+      val nameRaw = pigeonVar_list[14] as String?
+      val matchedRuleId = pigeonVar_list[15] as Long?
+      val matchedRuleTitle = pigeonVar_list[16] as String?
+      val eventId = pigeonVar_list[17] as Long?
+      val systemId = pigeonVar_list[18] as Long?
+      val phoneAccountId = pigeonVar_list[19] as String?
+      return JournalItemDto(id, sourceRank, occurredAt, kind, rawNumber, nameSource, blockedByUs, hadSignature, nameLate, action, reason, latencyMs, durationSeconds, e164, nameRaw, matchedRuleId, matchedRuleTitle, eventId, systemId, phoneAccountId)
     }
   }
   fun toList(): List<Any?> {
@@ -551,6 +557,7 @@ data class JournalItemDto (
       nameSource,
       blockedByUs,
       hadSignature,
+      nameLate,
       action,
       reason,
       latencyMs,
@@ -572,7 +579,7 @@ data class JournalItemDto (
       return true
     }
     val other = other as JournalItemDto
-    return NopeCallApiPigeonUtils.deepEquals(this.id, other.id) && NopeCallApiPigeonUtils.deepEquals(this.sourceRank, other.sourceRank) && NopeCallApiPigeonUtils.deepEquals(this.occurredAt, other.occurredAt) && NopeCallApiPigeonUtils.deepEquals(this.kind, other.kind) && NopeCallApiPigeonUtils.deepEquals(this.rawNumber, other.rawNumber) && NopeCallApiPigeonUtils.deepEquals(this.nameSource, other.nameSource) && NopeCallApiPigeonUtils.deepEquals(this.blockedByUs, other.blockedByUs) && NopeCallApiPigeonUtils.deepEquals(this.hadSignature, other.hadSignature) && NopeCallApiPigeonUtils.deepEquals(this.action, other.action) && NopeCallApiPigeonUtils.deepEquals(this.reason, other.reason) && NopeCallApiPigeonUtils.deepEquals(this.latencyMs, other.latencyMs) && NopeCallApiPigeonUtils.deepEquals(this.durationSeconds, other.durationSeconds) && NopeCallApiPigeonUtils.deepEquals(this.e164, other.e164) && NopeCallApiPigeonUtils.deepEquals(this.nameRaw, other.nameRaw) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleId, other.matchedRuleId) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleTitle, other.matchedRuleTitle) && NopeCallApiPigeonUtils.deepEquals(this.eventId, other.eventId) && NopeCallApiPigeonUtils.deepEquals(this.systemId, other.systemId) && NopeCallApiPigeonUtils.deepEquals(this.phoneAccountId, other.phoneAccountId)
+    return NopeCallApiPigeonUtils.deepEquals(this.id, other.id) && NopeCallApiPigeonUtils.deepEquals(this.sourceRank, other.sourceRank) && NopeCallApiPigeonUtils.deepEquals(this.occurredAt, other.occurredAt) && NopeCallApiPigeonUtils.deepEquals(this.kind, other.kind) && NopeCallApiPigeonUtils.deepEquals(this.rawNumber, other.rawNumber) && NopeCallApiPigeonUtils.deepEquals(this.nameSource, other.nameSource) && NopeCallApiPigeonUtils.deepEquals(this.blockedByUs, other.blockedByUs) && NopeCallApiPigeonUtils.deepEquals(this.hadSignature, other.hadSignature) && NopeCallApiPigeonUtils.deepEquals(this.nameLate, other.nameLate) && NopeCallApiPigeonUtils.deepEquals(this.action, other.action) && NopeCallApiPigeonUtils.deepEquals(this.reason, other.reason) && NopeCallApiPigeonUtils.deepEquals(this.latencyMs, other.latencyMs) && NopeCallApiPigeonUtils.deepEquals(this.durationSeconds, other.durationSeconds) && NopeCallApiPigeonUtils.deepEquals(this.e164, other.e164) && NopeCallApiPigeonUtils.deepEquals(this.nameRaw, other.nameRaw) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleId, other.matchedRuleId) && NopeCallApiPigeonUtils.deepEquals(this.matchedRuleTitle, other.matchedRuleTitle) && NopeCallApiPigeonUtils.deepEquals(this.eventId, other.eventId) && NopeCallApiPigeonUtils.deepEquals(this.systemId, other.systemId) && NopeCallApiPigeonUtils.deepEquals(this.phoneAccountId, other.phoneAccountId)
   }
 
   override fun hashCode(): Int {
@@ -585,6 +592,7 @@ data class JournalItemDto (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameSource)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.blockedByUs)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hadSignature)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameLate)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.action)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.reason)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyMs)
@@ -599,7 +607,7 @@ data class JournalItemDto (
     return result
   }
   override fun toString(): String {
-    return "JournalItemDto(id=$id, sourceRank=$sourceRank, occurredAt=$occurredAt, kind=$kind, rawNumber=$rawNumber, nameSource=$nameSource, blockedByUs=$blockedByUs, hadSignature=$hadSignature, action=$action, reason=$reason, latencyMs=$latencyMs, durationSeconds=$durationSeconds, e164=$e164, nameRaw=$nameRaw, matchedRuleId=$matchedRuleId, matchedRuleTitle=$matchedRuleTitle, eventId=$eventId, systemId=$systemId, phoneAccountId=$phoneAccountId)"
+    return "JournalItemDto(id=$id, sourceRank=$sourceRank, occurredAt=$occurredAt, kind=$kind, rawNumber=$rawNumber, nameSource=$nameSource, blockedByUs=$blockedByUs, hadSignature=$hadSignature, nameLate=$nameLate, action=$action, reason=$reason, latencyMs=$latencyMs, durationSeconds=$durationSeconds, e164=$e164, nameRaw=$nameRaw, matchedRuleId=$matchedRuleId, matchedRuleTitle=$matchedRuleTitle, eventId=$eventId, systemId=$systemId, phoneAccountId=$phoneAccountId)"
   }
 }
 
@@ -840,8 +848,9 @@ data class SyncResultDto (
   val fetched: Long,
   val stitched: Long,
   /**
-   * Названий, ставших известными уже после решения. Ключевой показатель §21 п. 4:
-   * если подпись досылается, правила по названию на таких звонках работать не могут.
+   * Названий, ставших известными уже после решения, любого происхождения. Показатель §21 п. 4
+   * считается не здесь: узнать, дослал ли название оператор или диалер, по системному журналу
+   * нельзя (см. `CallLogSyncer.lateNameSource`).
    */
   val lateNames: Long
 )
@@ -897,10 +906,16 @@ data class PreviewDto (
   /** Сколько разрешающих правил новое правило перекрывает. `null` — не считали. */
   val allowRulesCovered: Long? = null,
   /**
-   * Сколько номеров из телефонной книги попадёт под правило. `null` — нет доступа
-   * к контактам: «ноль контактов» и «мы не смогли проверить» — разные утверждения.
+   * Сколько номеров из телефонной книги попадёт под правило. Осмысленно только
+   * при `contactsState == 'COUNTED'`.
    */
-  val contactsCovered: Long? = null
+  val contactsCovered: Long? = null,
+  /**
+   * COUNTED — книга прочитана; NOT_APPLICABLE — правило не про номера, книга тут не при чём;
+   * NO_ACCESS — правило про номера, но доступа к книге нет. Три разных состояния, а не один
+   * `null`: иначе интерфейс сообщает «нет доступа» там, где показатель просто неприменим.
+   */
+  val contactsState: String
 )
  {
   companion object {
@@ -910,7 +925,8 @@ data class PreviewDto (
       val contactsTruncated = pigeonVar_list[2] as Boolean
       val allowRulesCovered = pigeonVar_list[3] as Long?
       val contactsCovered = pigeonVar_list[4] as Long?
-      return PreviewDto(count, truncated, contactsTruncated, allowRulesCovered, contactsCovered)
+      val contactsState = pigeonVar_list[5] as String
+      return PreviewDto(count, truncated, contactsTruncated, allowRulesCovered, contactsCovered, contactsState)
     }
   }
   fun toList(): List<Any?> {
@@ -920,6 +936,7 @@ data class PreviewDto (
       contactsTruncated,
       allowRulesCovered,
       contactsCovered,
+      contactsState,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -930,7 +947,7 @@ data class PreviewDto (
       return true
     }
     val other = other as PreviewDto
-    return NopeCallApiPigeonUtils.deepEquals(this.count, other.count) && NopeCallApiPigeonUtils.deepEquals(this.truncated, other.truncated) && NopeCallApiPigeonUtils.deepEquals(this.contactsTruncated, other.contactsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.allowRulesCovered, other.allowRulesCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsCovered, other.contactsCovered)
+    return NopeCallApiPigeonUtils.deepEquals(this.count, other.count) && NopeCallApiPigeonUtils.deepEquals(this.truncated, other.truncated) && NopeCallApiPigeonUtils.deepEquals(this.contactsTruncated, other.contactsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.allowRulesCovered, other.allowRulesCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsCovered, other.contactsCovered) && NopeCallApiPigeonUtils.deepEquals(this.contactsState, other.contactsState)
   }
 
   override fun hashCode(): Int {
@@ -940,10 +957,11 @@ data class PreviewDto (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsTruncated)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.allowRulesCovered)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsCovered)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.contactsState)
     return result
   }
   override fun toString(): String {
-    return "PreviewDto(count=$count, truncated=$truncated, contactsTruncated=$contactsTruncated, allowRulesCovered=$allowRulesCovered, contactsCovered=$contactsCovered)"
+    return "PreviewDto(count=$count, truncated=$truncated, contactsTruncated=$contactsTruncated, allowRulesCovered=$allowRulesCovered, contactsCovered=$contactsCovered, contactsState=$contactsState)"
   }
 }
 
@@ -1290,8 +1308,23 @@ data class ObservationReportDto (
   val checks: Long,
   val withSignature: Long,
   val withoutName: Long,
-  /** Сколько названий стало известно уже после решения — ключевой показатель §21 п. 4. */
+  /**
+   * Сколько названий стало известно уже после решения — любого происхождения, включая имена
+   * из телефонной книги.
+   */
   val lateNames: Long,
+  /**
+   * Из них операторских подписей. Отдельно от [lateNames], потому что именно это отвечает
+   * на §21 п. 4: имя «Мама», подставленное системой позже, к поведению оператора отношения
+   * не имеет. Источник — только собственное наблюдение: происхождение названия из системного
+   * журнала неустановимо.
+   */
+  val lateSignatures: Long,
+  /**
+   * Названий, известных **в момент решения**. Поздние сюда не входят: раньше их считали
+   * вместе, и сводка утверждала «название было» про звонок, где его не было.
+   */
+  val namesAtDecision: Long,
   val hiddenNumbers: Long,
   val coldStarts: Long,
   val watchdogFired: Long,
@@ -1312,18 +1345,20 @@ data class ObservationReportDto (
       val withSignature = pigeonVar_list[2] as Long
       val withoutName = pigeonVar_list[3] as Long
       val lateNames = pigeonVar_list[4] as Long
-      val hiddenNumbers = pigeonVar_list[5] as Long
-      val coldStarts = pigeonVar_list[6] as Long
-      val watchdogFired = pigeonVar_list[7] as Long
-      val latencyP50 = pigeonVar_list[8] as Long
-      val latencyP95 = pigeonVar_list[9] as Long
-      val latencyMax = pigeonVar_list[10] as Long
-      val nameSources = pigeonVar_list[11] as List<BucketDto>
-      val networkTypes = pigeonVar_list[12] as List<BucketDto>
-      val volte = pigeonVar_list[13] as List<BucketDto>
-      val extrasKeys = pigeonVar_list[14] as List<BucketDto>
-      val signatures = pigeonVar_list[15] as List<SignatureDto>
-      return ObservationReportDto(periodDays, checks, withSignature, withoutName, lateNames, hiddenNumbers, coldStarts, watchdogFired, latencyP50, latencyP95, latencyMax, nameSources, networkTypes, volte, extrasKeys, signatures)
+      val lateSignatures = pigeonVar_list[5] as Long
+      val namesAtDecision = pigeonVar_list[6] as Long
+      val hiddenNumbers = pigeonVar_list[7] as Long
+      val coldStarts = pigeonVar_list[8] as Long
+      val watchdogFired = pigeonVar_list[9] as Long
+      val latencyP50 = pigeonVar_list[10] as Long
+      val latencyP95 = pigeonVar_list[11] as Long
+      val latencyMax = pigeonVar_list[12] as Long
+      val nameSources = pigeonVar_list[13] as List<BucketDto>
+      val networkTypes = pigeonVar_list[14] as List<BucketDto>
+      val volte = pigeonVar_list[15] as List<BucketDto>
+      val extrasKeys = pigeonVar_list[16] as List<BucketDto>
+      val signatures = pigeonVar_list[17] as List<SignatureDto>
+      return ObservationReportDto(periodDays, checks, withSignature, withoutName, lateNames, lateSignatures, namesAtDecision, hiddenNumbers, coldStarts, watchdogFired, latencyP50, latencyP95, latencyMax, nameSources, networkTypes, volte, extrasKeys, signatures)
     }
   }
   fun toList(): List<Any?> {
@@ -1333,6 +1368,8 @@ data class ObservationReportDto (
       withSignature,
       withoutName,
       lateNames,
+      lateSignatures,
+      namesAtDecision,
       hiddenNumbers,
       coldStarts,
       watchdogFired,
@@ -1354,7 +1391,7 @@ data class ObservationReportDto (
       return true
     }
     val other = other as ObservationReportDto
-    return NopeCallApiPigeonUtils.deepEquals(this.periodDays, other.periodDays) && NopeCallApiPigeonUtils.deepEquals(this.checks, other.checks) && NopeCallApiPigeonUtils.deepEquals(this.withSignature, other.withSignature) && NopeCallApiPigeonUtils.deepEquals(this.withoutName, other.withoutName) && NopeCallApiPigeonUtils.deepEquals(this.lateNames, other.lateNames) && NopeCallApiPigeonUtils.deepEquals(this.hiddenNumbers, other.hiddenNumbers) && NopeCallApiPigeonUtils.deepEquals(this.coldStarts, other.coldStarts) && NopeCallApiPigeonUtils.deepEquals(this.watchdogFired, other.watchdogFired) && NopeCallApiPigeonUtils.deepEquals(this.latencyP50, other.latencyP50) && NopeCallApiPigeonUtils.deepEquals(this.latencyP95, other.latencyP95) && NopeCallApiPigeonUtils.deepEquals(this.latencyMax, other.latencyMax) && NopeCallApiPigeonUtils.deepEquals(this.nameSources, other.nameSources) && NopeCallApiPigeonUtils.deepEquals(this.networkTypes, other.networkTypes) && NopeCallApiPigeonUtils.deepEquals(this.volte, other.volte) && NopeCallApiPigeonUtils.deepEquals(this.extrasKeys, other.extrasKeys) && NopeCallApiPigeonUtils.deepEquals(this.signatures, other.signatures)
+    return NopeCallApiPigeonUtils.deepEquals(this.periodDays, other.periodDays) && NopeCallApiPigeonUtils.deepEquals(this.checks, other.checks) && NopeCallApiPigeonUtils.deepEquals(this.withSignature, other.withSignature) && NopeCallApiPigeonUtils.deepEquals(this.withoutName, other.withoutName) && NopeCallApiPigeonUtils.deepEquals(this.lateNames, other.lateNames) && NopeCallApiPigeonUtils.deepEquals(this.lateSignatures, other.lateSignatures) && NopeCallApiPigeonUtils.deepEquals(this.namesAtDecision, other.namesAtDecision) && NopeCallApiPigeonUtils.deepEquals(this.hiddenNumbers, other.hiddenNumbers) && NopeCallApiPigeonUtils.deepEquals(this.coldStarts, other.coldStarts) && NopeCallApiPigeonUtils.deepEquals(this.watchdogFired, other.watchdogFired) && NopeCallApiPigeonUtils.deepEquals(this.latencyP50, other.latencyP50) && NopeCallApiPigeonUtils.deepEquals(this.latencyP95, other.latencyP95) && NopeCallApiPigeonUtils.deepEquals(this.latencyMax, other.latencyMax) && NopeCallApiPigeonUtils.deepEquals(this.nameSources, other.nameSources) && NopeCallApiPigeonUtils.deepEquals(this.networkTypes, other.networkTypes) && NopeCallApiPigeonUtils.deepEquals(this.volte, other.volte) && NopeCallApiPigeonUtils.deepEquals(this.extrasKeys, other.extrasKeys) && NopeCallApiPigeonUtils.deepEquals(this.signatures, other.signatures)
   }
 
   override fun hashCode(): Int {
@@ -1364,6 +1401,8 @@ data class ObservationReportDto (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.withSignature)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.withoutName)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lateNames)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.lateSignatures)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.namesAtDecision)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.hiddenNumbers)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.coldStarts)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.watchdogFired)
@@ -1378,7 +1417,7 @@ data class ObservationReportDto (
     return result
   }
   override fun toString(): String {
-    return "ObservationReportDto(periodDays=$periodDays, checks=$checks, withSignature=$withSignature, withoutName=$withoutName, lateNames=$lateNames, hiddenNumbers=$hiddenNumbers, coldStarts=$coldStarts, watchdogFired=$watchdogFired, latencyP50=$latencyP50, latencyP95=$latencyP95, latencyMax=$latencyMax, nameSources=$nameSources, networkTypes=$networkTypes, volte=$volte, extrasKeys=$extrasKeys, signatures=$signatures)"
+    return "ObservationReportDto(periodDays=$periodDays, checks=$checks, withSignature=$withSignature, withoutName=$withoutName, lateNames=$lateNames, lateSignatures=$lateSignatures, namesAtDecision=$namesAtDecision, hiddenNumbers=$hiddenNumbers, coldStarts=$coldStarts, watchdogFired=$watchdogFired, latencyP50=$latencyP50, latencyP95=$latencyP95, latencyMax=$latencyMax, nameSources=$nameSources, networkTypes=$networkTypes, volte=$volte, extrasKeys=$extrasKeys, signatures=$signatures)"
   }
 }
 

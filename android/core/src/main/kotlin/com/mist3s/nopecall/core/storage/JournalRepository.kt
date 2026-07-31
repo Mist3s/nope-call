@@ -29,6 +29,13 @@ public data class JournalItem(
     val phoneAccountId: String?,
     /** Была ли операторская подпись. Отдельно, потому что это ключевой показатель (ТЗ §7.7.5). */
     val hadSignature: Boolean,
+    /**
+     * Название стало известно **после** решения (ТЗ §7.3).
+     *
+     * Показывается в карточке: без этого «телефонная книга» читается как «имя было в момент
+     * проверки», хотя по такому звонку правила по названию не работали.
+     */
+    val nameLate: Boolean,
 ) {
     public val blockedByUs: Boolean
         get() = action == "REJECT" || action == "DROP"
@@ -115,7 +122,8 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             totalEvents = db.events().count(),
             lastEventAt = db.events().lastEventAt(),
             withSignatureLast100 = recent.count {
-                it.nameSource == "CNAP" || it.nameSource == "CNAP_OPERATOR_LABEL"
+                (it.nameSource == "CNAP" || it.nameSource == "CNAP_OPERATOR_LABEL") &&
+                    it.nameLate != true
             },
             checkedLast100 = recent.size,
             mirrorRecords = db.mirror().count(),
@@ -197,6 +205,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
                 allowRulesCovered = allowRules,
                 contactsCovered = contactsPreview.count,
                 contactsTruncated = contactsPreview.truncated,
+                contactsState = contactsPreview.state,
             )
         }
 
@@ -213,13 +222,35 @@ public class JournalRepository(private val db: NopeCallDatabase) {
 
         // Записи зеркала, которым нашего события не нашлось, тоже видны в журнале — значит
         // и в подсчёте они обязаны быть, иначе предпросмотр противоречит тому, что на экране.
-        // Только для правил по номеру: названия в зеркале нет ни в токенах, ни по частям,
-        // и считать по нему «содержит слово» было бы догадкой.
         var mirrorSize = 0
         if (target == "NUMBER") {
             val mirror = db.mirror().digitsForPreview(windowSize)
             mirrorSize = mirror.size
             matched += mirror.count { matches(it, "", matchType, canonicalPattern) }
+        } else {
+            // Названия зеркала канонизируются на месте — тем же движком, которым канонизируются
+            // события, поэтому подсчёт остаётся точным. Хранить разбор в зеркале было бы вторым
+            // источником истины для тех же полей; канонизация пятисот коротких строк вне
+            // горячего пути дешевле, чем расхождение двух копий.
+            val names = db.mirror().namesForPreview(windowSize)
+            mirrorSize = names.size
+            val dictionary = categoryDictionary()
+            matched += names.count { raw ->
+                val forms = NameCanonizer.canonize(raw, dictionary)
+                val text = when (target) {
+                    "NAME_ORG" -> forms.org
+                    "NAME_CATEGORY" -> forms.category
+                    else -> forms.whole
+                }
+                // Токены берутся от подписи целиком, а ограничители по краям — как у события:
+                // «содержит слово» обязано считать одинаково по обоим слоям журнала, иначе
+                // одно и то же правило даёт разные числа в зависимости от того, чья запись.
+                val tokens = forms.whole.tokens
+                    .takeIf { it.isNotEmpty() }
+                    ?.joinToString(" ", prefix = " ", postfix = " ")
+                    .orEmpty()
+                text != null && matches(text.fold, tokens, matchType, canonicalPattern)
+            }
         }
 
         return PreviewResult(
@@ -228,6 +259,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             allowRulesCovered = allowRules,
             contactsCovered = contactsPreview.count,
             contactsTruncated = contactsPreview.truncated,
+            contactsState = contactsPreview.state,
         )
     }
 
@@ -319,9 +351,11 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         val byNumber = target == "NUMBER" &&
             canonicalPattern.isNotEmpty() &&
             matchType in NUMBER_MATCH_TYPES
-        if (!everyContact && !byNumber) return ContactPreview.UNKNOWN
+        // Правило по названию звонящего к телефонной книге отношения не имеет: у контакта
+        // есть номер, а не операторская подпись. Это «неприменимо», а не «не смогли проверить».
+        if (!everyContact && !byNumber) return ContactPreview.NOT_APPLICABLE
 
-        val numbers = contacts.numbers(limit) ?: return ContactPreview.UNKNOWN
+        val numbers = contacts.numbers(limit) ?: return ContactPreview.NO_ACCESS
         return ContactPreview(
             count = if (everyContact) {
                 numbers.size
@@ -333,6 +367,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             // Предел достигнут — показатель нижняя граница. Молча выдать его за точное число
             // нельзя: «ровно 3 контакта» и «не меньше 3» пользователь читает по-разному.
             truncated = numbers.size >= limit,
+            state = ContactsState.COUNTED,
         )
     }
 
@@ -375,17 +410,45 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         val truncated: Boolean,
         /** Перекрытых разрешающих правил. Приближение, см. `countAllowRulesCovered`. */
         val allowRulesCovered: Int? = null,
-        /** Номеров телефонной книги. `null` — нет `READ_CONTACTS` либо показатель неприменим. */
+        /** Номеров телефонной книги. Осмысленно только при [ContactsState.COUNTED]. */
         val contactsCovered: Int? = null,
         /** Книга прочитана не до конца: [contactsCovered] — нижняя граница, «≥ N». */
         val contactsTruncated: Boolean = false,
+        /** Что вообще произошло с проверкой книги. См. [ContactsState]. */
+        val contactsState: ContactsState = ContactsState.NOT_APPLICABLE,
     )
 
-    /** Внутренний результат прохода по книге: число и признак усечения ходят только вместе. */
-    private data class ContactPreview(val count: Int?, val truncated: Boolean) {
+    /**
+     * Итог проверки телефонной книги.
+     *
+     * Состояние, а не один `null` на все случаи. Раньше `contactsCovered = null` значило
+     * и «доступа к книге нет», и «к такому правилу показатель не применяется», и интерфейс
+     * печатал первое всегда: у правила по операторской подписи он сообщал «нет доступа
+     * к телефонной книге» при выданном разрешении. «Не знаю» и «неприменимо» — разные
+     * утверждения, и различать их обязан источник, а не тот, кто рисует текст.
+     */
+    public enum class ContactsState {
+        /** Книга прочитана, [PreviewResult.contactsCovered] — число попавших номеров. */
+        COUNTED,
+
+        /** Правило не про номера: телефонная книга к нему отношения не имеет. */
+        NOT_APPLICABLE,
+
+        /** Правило про номера, но книга недоступна: нет `READ_CONTACTS`. */
+        NO_ACCESS,
+    }
+
+    /** Внутренний результат прохода по книге: число, усечение и состояние ходят только вместе. */
+    private data class ContactPreview(
+        val count: Int?,
+        val truncated: Boolean,
+        val state: ContactsState,
+    ) {
         companion object {
-            /** «Не знаю»: доступа нет или показатель к такому правилу не применяется. */
-            val UNKNOWN = ContactPreview(count = null, truncated = false)
+            val NOT_APPLICABLE =
+                ContactPreview(null, truncated = false, state = ContactsState.NOT_APPLICABLE)
+            val NO_ACCESS =
+                ContactPreview(null, truncated = false, state = ContactsState.NO_ACCESS)
         }
     }
 
@@ -408,8 +471,20 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         eventId = eventId,
         systemId = systemId,
         phoneAccountId = phoneAccountId,
-        hadSignature = nameSource == "CNAP" || nameSource == "CNAP_OPERATOR_LABEL",
+        // Именно «была в момент проверки»: подпись, дошедшая после решения, на решение
+        // не влияла, и метка о ней вводила бы в заблуждение.
+        hadSignature = (nameSource == "CNAP" || nameSource == "CNAP_OPERATOR_LABEL") &&
+            nameLate != true,
+        nameLate = nameLate == true,
     )
+
+    /**
+     * Словарь корней категорий из настроек — тот же, что используется при разборе подписи
+     * в горячем пути. Иначе предпросмотр разбирал бы название иначе, чем разберёт его звонок.
+     */
+    private suspend fun categoryDictionary(): Set<String> =
+        (db.settings().get(RulesRepository.KEY_CATEGORY_DICT) ?: RulesRepository.DEFAULT_CATEGORY_DICT)
+            .split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
     /** Канонизация введённого пользователем шаблона названия — для предпросмотра. */
     public fun canonizeNamePattern(pattern: String): String = NameCanonizer.canonizePattern(pattern)

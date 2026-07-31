@@ -23,7 +23,7 @@ import androidx.room.RoomDatabase
         ScreeningEventEntity::class,
         CallLogMirrorEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 public abstract class NopeCallDatabase : RoomDatabase() {
@@ -79,6 +79,21 @@ public abstract class NopeCallDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE screening_events ADD COLUMN operatorName TEXT")
                     db.execSQL("ALTER TABLE screening_events ADD COLUMN roaming INTEGER")
                     db.execSQL("ALTER TABLE screening_events ADD COLUMN extrasKeys TEXT")
+                }
+            },
+            object : androidx.room.migration.Migration(2, 3) {
+                override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    // Признак «название узнали позже». Раньше это состояние кодировалось
+                    // затиранием источника на SYSTEM_LOG, из-за чего показатель «подпись
+                    // оператора пришла позже» считал таковым имя из телефонной книги.
+                    db.execSQL("ALTER TABLE screening_events ADD COLUMN nameLate INTEGER")
+
+                    // Уже записанные поздние названия помечаются флагом, но источник у них
+                    // остаётся неустановленным: задним числом выяснить, было ли имя контактом,
+                    // нельзя, а записать догадку в данные — значит потом на неё опереться.
+                    db.execSQL(
+                        "UPDATE screening_events SET nameLate = 1 WHERE nameSource = 'SYSTEM_LOG'"
+                    )
                 }
             },
         )

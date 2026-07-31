@@ -3,10 +3,12 @@ package com.mist3s.nopecall.core
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.mist3s.nopecall.core.calllog.CallLogCursor
 import com.mist3s.nopecall.core.calllog.CallLogRow
 import com.mist3s.nopecall.core.calllog.CallLogSource
 import com.mist3s.nopecall.core.calllog.CallLogSyncer
 import com.mist3s.nopecall.core.calllog.CallType
+import com.mist3s.nopecall.core.facts.ContactMembership
 import com.mist3s.nopecall.core.storage.NopeCallDatabase
 import com.mist3s.nopecall.core.storage.ScreeningEventEntity
 import com.mist3s.nopecall.engine.RuFastPathNormalizer
@@ -56,19 +58,28 @@ class CallLogSyncerTest {
         var queries = 0
             private set
 
-        override fun query(sinceMillis: Long, afterDate: Long?, limit: Int): List<CallLogRow> {
+        override fun query(sinceMillis: Long, after: CallLogCursor?, limit: Int): List<CallLogRow> {
             queries++
+            // Порядок и курсор — как в `AndroidCallLogSource`: по паре «время, идентификатор».
+            // Подделка, которая сравнивает иначе, проверяла бы не тот обход, что на устройстве.
             return rows
-                .filter { it.dateMillis >= sinceMillis && (afterDate == null || it.dateMillis > afterDate) }
-                .sortedBy { it.dateMillis }
+                .filter { it.dateMillis >= sinceMillis }
+                .filter {
+                    after == null ||
+                        it.dateMillis > after.dateMillis ||
+                        (it.dateMillis == after.dateMillis && it.systemId > after.systemId)
+                }
+                .sortedWith(compareBy({ it.dateMillis }, { it.systemId }))
                 .take(limit)
         }
 
         override fun isAvailable(): Boolean = available
     }
 
-    private fun syncer(source: CallLogSource) =
-        CallLogSyncer(db, source, normalizer, now = { NOW })
+    private fun syncer(
+        source: CallLogSource,
+        contacts: ContactMembership = ContactMembership.UNKNOWN,
+    ) = CallLogSyncer(db, source, normalizer, now = { NOW }, contacts = contacts)
 
     private fun row(
         id: Long,
@@ -228,8 +239,8 @@ class CallLogSyncerTest {
 
     @Test
     fun `позднее имя дописывается в событие и считается`() {
-        // Главный измеряемый показатель проекта: подпись появилась в системном журнале, но
-        // её не было в момент проверки — значит оператор досылает её после решения (ТЗ §21 п. 4).
+        // Позднее название: в момент проверки его не было, значит правила по названию на этом
+        // звонке не работали. Источник при этом не установлен — см. тесты ниже.
         runBlocking { db.events().insert(event(occurredAt = NOW - 60_000, nameRaw = null)) }
         val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = "OOO Romashka")))
 
@@ -239,6 +250,88 @@ class CallLogSyncerTest {
         val saved = runBlocking { db.events().recent(10) }.single()
         assertEquals("OOO Romashka", saved.nameRaw)
         assertEquals("SYSTEM_LOG", saved.nameSource)
+    }
+
+    @Test
+    fun `записи с одинаковым временем не теряются на границе страницы`() {
+        // В системном журнале реального телефона нашлись две пары строк с равным DATE.
+        // При строгом `DATE >` та из них, что оказалась последней на странице, выпадала
+        // молча: в зеркале записи просто нет, и заметить это по интерфейсу нельзя.
+        val source = FakeSource(
+            listOf(
+                row(1, date = NOW - 5_000, number = "+74951111111"),
+                row(2, date = NOW - 4_000, number = "+74952222222"),
+                row(3, date = NOW - 4_000, number = "+74953333333"), // то же время, что у 2
+                row(4, date = NOW - 3_000, number = "+74954444444"),
+            )
+        )
+
+        val result = runBlocking { syncer(source).sync(pageSize = 2) }
+
+        assertEquals(4, result.fetched, "все четыре записи обязаны попасть в зеркало")
+        assertEquals(4, runBlocking { db.mirror().count() })
+    }
+
+    @Test
+    fun `страница целиком из одинакового времени не зацикливает обход`() {
+        // Если бы курсор был одним временем, он бы здесь не сдвинулся, и обход упёрся бы
+        // в предел страниц: сорок запросов к провайдеру на каждой синхронизации. Пара
+        // «время, идентификатор» двигается всегда.
+        val source = FakeSource(
+            listOf(
+                row(1, date = NOW - 4_000, number = "+74951111111"),
+                row(2, date = NOW - 4_000, number = "+74952222222"),
+            )
+        )
+
+        val result = runBlocking { syncer(source).sync(pageSize = 2, maxPages = 40) }
+
+        assertEquals(2, result.fetched)
+        // Два запроса, а не сорок: первый отдал полную страницу, второй — пустую. Меньше
+        // нельзя: полная страница не отличима от «данные кончились ровно на границе».
+        assertEquals(2, source.queries)
+    }
+
+    @Test
+    fun `позднее имя из телефонной книги подписью не считается`() {
+        runBlocking { db.events().insert(event(occurredAt = NOW - 60_000)) }
+        val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = "Мама")))
+
+        runBlocking { syncer(source, contacts = ContactMembership { true }).sync() }
+
+        val saved = runBlocking { db.events().recent(10) }.single()
+        assertEquals("Мама", saved.nameRaw)
+        assertEquals(CallLogSyncer.SOURCE_CONTACTS, saved.nameSource)
+        assertEquals(true, saved.nameLate)
+        assertEquals(0, runBlocking { db.events().lateSignaturesSince(0) })
+    }
+
+    @Test
+    fun `отсутствие номера в книге не делает позднее имя подписью оператора`() {
+        // Данные с реального телефона: у номера вне книги CACHED_NAME заполнен у части
+        // звонков, а звонилка показывает одно название у всех — значит столбец об источнике
+        // не свидетельствует. Вывод «не в книге, значит от оператора» дал бы ложную подпись —
+        // ровно тот дефект, но в обратную сторону.
+        runBlocking { db.events().insert(event(occurredAt = NOW - 60_000)) }
+        val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = "OOO Romashka")))
+
+        runBlocking { syncer(source, contacts = ContactMembership { false }).sync() }
+
+        val saved = runBlocking { db.events().recent(10) }.single()
+        assertEquals(CallLogSyncer.SOURCE_UNKNOWN, saved.nameSource)
+        assertEquals(true, saved.nameLate)
+        assertEquals(0, runBlocking { db.events().lateSignaturesSince(0) })
+        assertEquals(1, runBlocking { db.events().lateNamesSince(0) })
+    }
+
+    @Test
+    fun `позднее название не идёт в счёт известных в момент решения`() {
+        runBlocking { db.events().insert(event(occurredAt = NOW - 60_000)) }
+        val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = "Мама")))
+
+        runBlocking { syncer(source, contacts = ContactMembership { true }).sync() }
+
+        assertEquals(0, runBlocking { db.events().namesAtDecisionSince(0) })
     }
 
     @Test

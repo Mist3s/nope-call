@@ -19,14 +19,22 @@ internal class AndroidCallLogSource(private val context: Context) : CallLogSourc
         context.checkSelfPermission(android.Manifest.permission.READ_CALL_LOG) ==
             PackageManager.PERMISSION_GRANTED
 
-    override fun query(sinceMillis: Long, afterDate: Long?, limit: Int): List<CallLogRow> {
+    override fun query(sinceMillis: Long, after: CallLogCursor?, limit: Int): List<CallLogRow> {
         if (!isAvailable()) return emptyList()
 
         val selection = StringBuilder("${CallLog.Calls.DATE} >= ?")
         val args = mutableListOf(sinceMillis.toString())
-        if (afterDate != null) {
-            selection.append(" AND ${CallLog.Calls.DATE} > ?")
-            args += afterDate.toString()
+        if (after != null) {
+            // Обход по паре «время, идентификатор», а не по одному времени: строки с равным
+            // `DATE` в журнале бывают, и строгое сравнение по времени теряло бы ту из них,
+            // что оказалась на границе страницы, — молча и без следа (ТЗ §7.2).
+            selection.append(
+                " AND (${CallLog.Calls.DATE} > ?" +
+                    " OR (${CallLog.Calls.DATE} = ? AND ${CallLog.Calls._ID} > ?))"
+            )
+            args += after.dateMillis.toString()
+            args += after.dateMillis.toString()
+            args += after.systemId.toString()
         }
 
         return try {
@@ -51,7 +59,9 @@ internal class AndroidCallLogSource(private val context: Context) : CallLogSourc
                 //
                 // Ограничение накладывается чтением: курсор наполняется провайдером порциями,
                 // поэтому выход из цикла на нужной строке не тянет весь журнал в память.
-                "${CallLog.Calls.DATE} ASC",
+                // Порядок обязан совпадать с курсором: иначе «следующая страница»
+                // не гарантирует продолжение, а произвольную выборку.
+                "${CallLog.Calls.DATE} ASC, ${CallLog.Calls._ID} ASC",
             )?.use { cursor ->
                 buildList(minOf(cursor.count, limit)) {
                     while (size < limit && cursor.moveToNext()) {

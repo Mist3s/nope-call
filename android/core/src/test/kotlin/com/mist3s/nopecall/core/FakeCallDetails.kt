@@ -18,4 +18,5 @@ internal data class FakeCallDetails(
     override val callerDisplayNamePresentation: Int = PRESENTATION_ALLOWED,
     override val verificationStatus: Int? = null,
     override val creationTimeMillis: Long = 0L,
+    override val callDirection: Int? = null,
 ) : CallDetailsReader

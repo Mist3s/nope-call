@@ -14,10 +14,24 @@ import com.mist3s.nopecall.engine.Degradation
  */
 public data class ObservationReport(
     val periodDays: Int,
+    /** Начало окна, по которому посчитана сводка. */
+    val fromAt: Long,
+    /** Конец окна. Границы печатаются дословно: сводка «за 30 суток» рядом с логами за одни
+     *  сутки — это расхождение внутри одного архива, и разбирающий жалобу верит сводке. */
+    val toAt: Long,
     val checks: Int,
     val withSignature: Int,
     val withoutName: Int,
+    /** Поздних названий любого происхождения: имена из книги, сетевые и неустановленные. */
     val lateNames: Int,
+    /**
+     * Из них — операторских подписей. Сейчас всегда 0: позднее название приходит только из
+     * зеркала, а оно об источнике не свидетельствует. Показывать это как «0 %» нельзя —
+     * см. [toText] и `lateSignaturesSince`.
+     */
+    val lateSignatures: Int,
+    /** Названий, известных **в момент решения**. Поздние сюда не входят. */
+    val namesAtDecision: Int,
     val nameSources: List<Bucket>,
     val networkTypes: List<Bucket>,
     val volte: List<Bucket>,
@@ -32,9 +46,15 @@ public data class ObservationReport(
     val stats: ObservationLog.Stats,
     val droppedTechLines: Long,
 ) {
-    /** Доля подписей, досланных после решения. Ключевой показатель §21 п. 4. */
-    public val lateNameShare: Double
-        get() = if (checks == 0) 0.0 else lateNames.toDouble() / checks
+    /**
+     * Доля операторских подписей, досланных после решения (§21 п. 4).
+     *
+     * Пока не измеряется: канала наблюдения нет, поэтому [lateSignatures] тождественно ноль,
+     * а ноль здесь неотличим от «не измерено» — и читается как «оператор подпись не досылает».
+     * Поэтому наружу выводится словами, а не процентом (см. [toText]).
+     */
+    public val lateSignatureShare: Double
+        get() = if (checks == 0) 0.0 else lateSignatures.toDouble() / checks
 
     public val signatureShare: Double
         get() = if (checks == 0) 0.0 else withSignature.toDouble() / checks
@@ -47,17 +67,31 @@ public data class ObservationReport(
      */
     public fun toText(): String = buildString {
         appendLine("Отбой — сводка режима наблюдения")
-        appendLine("Период: последние $periodDays сут.")
+        appendLine("Период: с ${stamp(fromAt)} по ${stamp(toAt)}")
         appendLine()
         appendLine("Проверок: $checks")
-        appendLine("  с названием в момент проверки: ${checks - withoutName}")
-        appendLine("  без названия: $withoutName")
-        appendLine("  с операторской подписью: $withSignature (${percent(signatureShare)})")
-        appendLine("  подпись пришла ПОСЛЕ решения: $lateNames (${percent(lateNameShare)})")
+        appendLine("  название было в момент решения: $namesAtDecision")
+        appendLine("  название дописано позже: $lateNames, из них подпись оператора: $lateSignatures")
+        if (lateNames > lateSignatures) {
+            appendLine("    (у остальных источник не установлен: происхождение названия")
+            appendLine("     из системного журнала определить нельзя, его дописывает и диалер)")
+        }
+        appendLine("  названия не было вообще: $withoutName")
+        appendLine("  подпись оператора в момент решения: $withSignature (${percent(signatureShare)})")
+        // Ноль здесь неотличим от «не измеряли», а прочитан будет как факт «оператор не
+        // досылает». Один раз на этом уже ошиблись, поэтому пишется словами.
+        if (lateSignatures > 0) {
+            appendLine("  подпись оператора ПОСЛЕ решения: $lateSignatures (${percent(lateSignatureShare)})")
+        } else {
+            appendLine("  подпись оператора ПОСЛЕ решения: не измеряется")
+            appendLine("    (нужен собственный канал наблюдения; по системному журналу")
+            appendLine("     отличить «дослал оператор» от «телефон записал сам» нельзя)")
+        }
         appendLine("  скрытый или неопределённый номер: $hiddenNumbers")
         appendLine()
         appendLine("Источник названия:")
-        nameSources.forEach { appendLine("  ${it.bucket}: ${it.total}") }
+        // По-русски: этот файл читает человек, который разбирает жалобу, а не парсер.
+        nameSources.forEach { appendLine("  ${sourceLabel(it.bucket)}: ${it.total}") }
         appendLine()
         appendLine("Тип сети:")
         networkTypes.forEach { appendLine("  ${it.bucket}: ${it.total}") }
@@ -87,8 +121,26 @@ public data class ObservationReport(
 
     private fun percent(value: Double): String = "${(value * 100).toInt()} %"
 
-    private fun mb(bytes: Long): String =
-        if (bytes < 1024 * 1024) "${bytes / 1024} КБ" else "${bytes / (1024 * 1024)} МБ"
+    private fun stamp(at: Long): String = java.time.Instant.ofEpochMilli(at)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+
+    private fun sourceLabel(bucket: String): String = when (bucket) {
+        "CNAP", "CNAP_OPERATOR_LABEL" -> "подпись оператора в момент решения"
+        "CONTACTS" -> "телефонная книга"
+        "LATE_CNAP" -> "подпись оператора, дошла позже"
+        "LATE_CONTACTS" -> "телефонная книга, узнали позже"
+        "LATE_UNKNOWN" -> "дошло позже, источник не установлен"
+        "NONE" -> "названия не было"
+        else -> bucket
+    }
+
+    /** Байты показываются байтами: «0 КБ» при непустом логе читается как «ничего не пишется». */
+    private fun mb(bytes: Long): String = when {
+        bytes < 1024 -> "$bytes Б"
+        bytes < 1024 * 1024 -> "${bytes / 1024} КБ"
+        else -> "${bytes / (1024 * 1024)} МБ"
+    }
 }
 
 /** Построение сводки. Отдельно от данных, чтобы отчёт оставался простой структурой. */
@@ -97,8 +149,17 @@ public class ObservationReporter(
     private val log: ObservationLog,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    public suspend fun report(periodDays: Int = DEFAULT_PERIOD_DAYS): ObservationReport {
-        val since = now() - periodDays.toLong() * DAY_MS
+    public suspend fun report(periodDays: Int = DEFAULT_PERIOD_DAYS): ObservationReport =
+        report(since = now() - periodDays.toLong() * DAY_MS, until = now())
+
+    /**
+     * Сводка ровно по окну выгрузки.
+     *
+     * Отдельный вход нужен архиву: сводка за 30 суток рядом с логами за одни сутки — это
+     * расхождение внутри одного файла, и заметит его не тот, кто выгружал, а тот, кто разбирает.
+     */
+    public suspend fun report(since: Long, until: Long): ObservationReport {
+        val periodDays = (((until - since) + DAY_MS - 1) / DAY_MS).toInt().coerceAtLeast(1)
         val events = db.events()
 
         val latencies = events.latencies(since)
@@ -107,12 +168,16 @@ public class ObservationReporter(
 
         return ObservationReport(
             periodDays = periodDays,
+            fromAt = since,
+            toAt = until,
             checks = checks,
             withSignature = nameSources
                 .filter { it.bucket == "CNAP" || it.bucket == "CNAP_OPERATOR_LABEL" }
                 .sumOf { it.total },
             withoutName = nameSources.filter { it.bucket == "NONE" }.sumOf { it.total },
             lateNames = events.lateNamesSince(since),
+            lateSignatures = events.lateSignaturesSince(since),
+            namesAtDecision = events.namesAtDecisionSince(since),
             nameSources = nameSources,
             networkTypes = events.byNetworkType(since),
             volte = events.byVolte(since),
