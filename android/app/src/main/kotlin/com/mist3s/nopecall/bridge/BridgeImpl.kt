@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import com.mist3s.nopecall.R
+import com.mist3s.nopecall.InstallOutcome
+import com.mist3s.nopecall.InstallStatusReceiver
 import com.mist3s.nopecall.core.CoreGraph
 import com.mist3s.nopecall.core.notify.NotifyConfig
 import com.mist3s.nopecall.core.observe.LogExporter
@@ -1066,7 +1068,10 @@ internal class UpdaterApiImpl(
                     is UpdateCheckResult.Available -> when (
                         val installed = manager.downloadAndInstall(checked)
                     ) {
-                        InstallResult.Started -> null
+                        // «Начато» — это только передача файла системе. Дальше решает
+                        // пользователь в системном диалоге, а исход приходит приёмником
+                        // `InstallStatusReceiver`, и если он уже принёс отказ — показываем его.
+                        InstallResult.Started -> InstallOutcome.take()
                         is InstallResult.Failure -> installed.reason
                     }
 
@@ -1087,7 +1092,11 @@ internal class UpdaterApiImpl(
 
     private fun manager(): UpdateManager? {
         val context = activityProvider() ?: return null
-        return Updater.create(context, statusAction = INSTALL_STATUS_ACTION)
+        return Updater.create(
+            context,
+            statusReceiver = android.content.ComponentName(context, InstallStatusReceiver::class.java),
+            statusAction = INSTALL_STATUS_ACTION,
+        )
     }
 
     private fun currentVersion(): String =

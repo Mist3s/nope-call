@@ -69,6 +69,25 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!--
+            Исход установки обновления от PackageInstaller (ТЗ §15.5).
+
+            Без этого приёмника обновление выглядело как «ничего не произошло»: система
+            присылает STATUS_PENDING_USER_ACTION вместе с интентом диалога подтверждения
+            в широковещательном сообщении, получателя не было — диалог не показывался,
+            а установщик честно отвечал «начато», и интерфейс возвращал кнопку «Обновить».
+
+            exported=false: сообщение приходит через PendingIntent, то есть от имени самого
+            приложения, и снаружи этот приёмник не нужен никому.
+        -->
+        <receiver
+            android:name="com.mist3s.nopecall.InstallStatusReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.mist3s.nopecall.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
         <!-- Нужна инструменту Flutter для генерации GeneratedPluginRegistrant -->
         <meta-data
             android:name="flutterEmbedding"

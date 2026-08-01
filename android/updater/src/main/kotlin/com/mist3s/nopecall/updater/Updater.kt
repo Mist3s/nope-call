@@ -1,5 +1,6 @@
 package com.mist3s.nopecall.updater
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.IntentSender
 import java.io.File
@@ -24,6 +25,8 @@ public object Updater {
     private const val DOWNLOAD_DIR = "updates"
 
     /**
+     * @param statusReceiver приёмник исхода установки. Интент делается явным: с Android 14
+     *   изменяемый `PendingIntent` с неявным интентом запрещён (см. [SystemApkInstaller]).
      * @param statusAction действие широковещательного интента, которым система сообщит исход
      *   установки. Приёмник объявляет хост в `:app`: после замены APK нужно перепроверить роль
      *   и пересобрать снимок (ТЗ §15.5), а это уже не дело апдейтера.
@@ -31,11 +34,16 @@ public object Updater {
      */
     public fun create(
         context: Context,
+        statusReceiver: ComponentName,
         statusAction: String,
         repo: String = GitHubUpdateSource.DEFAULT_REPO,
     ): UpdateManager = create(
         context = context,
-        statusIntentSender = SystemApkInstaller.broadcastStatusSender(context, statusAction),
+        statusIntentSender = SystemApkInstaller.broadcastStatusSender(
+            context,
+            statusReceiver,
+            statusAction,
+        ),
         repo = repo,
     )
 

@@ -1,6 +1,7 @@
 package com.mist3s.nopecall.updater
 
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
@@ -98,9 +99,18 @@ public class SystemApkInstaller(
          * С неизменяемым `PendingIntent` приёмник получил бы пустой интент, и установка
          * выглядела бы как «ничего не произошло». До Android 12 флага не существует, а интент
          * изменяем по умолчанию — поэтому проверка версии, а не безусловная константа.
+         *
+         * Интент **явный** — с компонентом приёмника, а не только с именем пакета. Причина
+         * не в стиле: с Android 14 (`targetSdk` ≥ 34) изменяемый `PendingIntent` с неявным
+         * интентом запрещён и бросает `IllegalArgumentException`, а `setPackage` неявность
+         * не снимает. То есть на современных прошивках обновление отказывало бы ещё до
+         * создания сессии. Заодно явный интент невозможно перехватить чужим приёмником.
+         *
+         * @param receiver приёмник хоста. `:updater` не знает про `:app` и получает его извне.
          */
         public fun broadcastStatusSender(
             context: Context,
+            receiver: ComponentName,
             action: String,
         ): (Int) -> IntentSender = { sessionId ->
             val mutable =
@@ -108,7 +118,7 @@ public class SystemApkInstaller(
             PendingIntent.getBroadcast(
                 context,
                 sessionId,
-                Intent(action).setPackage(context.packageName),
+                Intent(action).setComponent(receiver),
                 PendingIntent.FLAG_UPDATE_CURRENT or mutable,
             ).intentSender
         }
