@@ -338,6 +338,115 @@ class RuleEngineTest {
         assertEquals(CallAction.ALLOW, d.action, "блокировка обязана быть понижена до разрешения")
     }
 
+    @Test
+    fun `сбойное правило «без звука» тоже понижает блокировку`() {
+        // SILENCE звонок пропускает: телефон молчит, но ответить можно. Значит пропуск сбойного
+        // SILENCE с последующим REJECT превращает «прошёл» в «заблокирован» — то же нарушение
+        // §1.1, что и для разрешающего правила, просто для другого действия.
+        val cheapButStarved = Rule(
+            id = 100, title = "сбойное без звука",
+            target = RuleTarget.NAME, matchType = MatchType.REGEX,
+            pattern = "z{3}", action = CallAction.SILENCE, orderIndex = 100,
+            regexField = RegexField.NAME_FOLD,
+        )
+        val s = snapshot(cheapButStarved, rule(RuleTarget.NUMBER, MatchType.PREFIX, "7999", order = 600))
+
+        val d = RuleEngine.decide(
+            facts(number = "+79991234567", name = "a".repeat(10_000)), s,
+            Budget.wallClock(totalNanos = 5_000_000_000, perRuleNanos = 0),
+        )
+
+        assertTrue(d.has(Degradation.RULE_SKIPPED))
+        assertEquals(CallAction.ALLOW, d.action, "блокировка обязана быть понижена")
+    }
+
+    @Test
+    fun `сбойное разрешающее правило понижает и «без звука»`() {
+        // Зеркальный случай: пропущено ALLOW (вес выше), совпало SILENCE. Телефон остался бы
+        // молчащим — то есть звонок от врача пользователь не услышал бы.
+        val cheapButStarved = Rule(
+            id = 100, title = "сбойное разрешающее",
+            target = RuleTarget.NAME, matchType = MatchType.REGEX,
+            pattern = "z{3}", action = CallAction.ALLOW, orderIndex = 100,
+            regexField = RegexField.NAME_FOLD,
+        )
+        val s = snapshot(
+            cheapButStarved,
+            rule(RuleTarget.NUMBER, MatchType.PREFIX, "7999", action = CallAction.SILENCE, order = 600),
+        )
+
+        val d = RuleEngine.decide(
+            facts(number = "+79991234567", name = "a".repeat(10_000)), s,
+            Budget.wallClock(totalNanos = 5_000_000_000, perRuleNanos = 0),
+        )
+
+        assertEquals(CallAction.ALLOW, d.action, "«без звука» тоже понижается до разрешения")
+    }
+
+    @Test
+    fun `выражение, роняющее стек, отклоняется как дорогое, а не падает`() {
+        // Реализация регулярных выражений в JDK рекурсивна: на `(a|aa)+b` она падает по стеку,
+        // не превысив бюджет по времени. Отказ уходил наружу и ронял **весь** импорт правил,
+        // хотя обещано отклонение поштучно.
+        val check = RegexValidator.validate("(a|aa)+b")
+        assertTrue(check is PatternCheck.TooExpensive, "получено: $check")
+    }
+
+    // --- короткие номера: правило безопасности ТЗ §5.4 ----------------------------------------
+
+    @Test
+    fun `широкое правило не блокирует короткий номер`() {
+        // Ради этого правило и существует: 122, 155, 118 в резервный список экстренных
+        // не входят, а «блокировать всё, начинающееся с 1» пользователь напишет легко.
+        val s = snapshot(rule(RuleTarget.NUMBER, MatchType.PREFIX, "1", order = 600))
+
+        for (short in listOf("103", "122", "155", "112")) {
+            val d = decide(facts(short), s)
+            assertEquals(CallAction.ALLOW, d.action, "«$short» блокировать нельзя")
+        }
+    }
+
+    @Test
+    fun `точное правило по короткому номеру работает`() {
+        // Обратная сторона: явное точное правило пользователь написал сознательно.
+        val s = snapshot(rule(RuleTarget.NUMBER, MatchType.EXACT, "900", order = 600))
+
+        assertEquals(CallAction.REJECT, decide(facts("900"), s).action)
+        assertEquals(DecisionReason.RULE_MATCH, decide(facts("900"), s).reason)
+    }
+
+    @Test
+    fun `короткий номер проходит и в режиме «блокировать всё»`() {
+        // «Не блокируются ничем, кроме точного правила» — значит и default_action тоже.
+        val s = snapshot(
+            settings = DecisionSettings(defaultAction = CallAction.REJECT),
+        )
+
+        // Номер вне встроенного списка экстренных: иначе сработала бы более ранняя ветка,
+        // и тест проверял бы не то. Именно такие номера правило §5.4 и защищает.
+        val d = decide(facts("122"), s)
+        assertEquals(CallAction.ALLOW, d.action)
+        assertEquals(DecisionReason.SHORT_NUMBER, d.reason)
+    }
+
+    @Test
+    fun `правило по названию не блокирует короткий номер`() {
+        val s = snapshot(rule(RuleTarget.NAME, MatchType.CONTAINS, "reklama", order = 600))
+
+        val d = decide(facts(number = "122", name = "OOO Romashka: reklama"), s)
+        assertEquals(CallAction.ALLOW, d.action)
+        assertEquals(DecisionReason.SHORT_NUMBER, d.reason)
+    }
+
+    @Test
+    fun `четырёхзначный номер под защиту не попадает`() {
+        // Порог из ТЗ — три цифры, а не «короткий номер» нормализатора (до шести):
+        // иначе правила молча перестали бы работать для сервисных четырёхзначных.
+        val s = snapshot(rule(RuleTarget.NUMBER, MatchType.PREFIX, "9", order = 600))
+
+        assertEquals(CallAction.REJECT, decide(facts("9001"), s).action)
+    }
+
     // --- системное правило по контактам -----------------------------------------------------
 
     @Test

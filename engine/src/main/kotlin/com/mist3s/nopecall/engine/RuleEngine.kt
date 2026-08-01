@@ -119,6 +119,17 @@ public object RuleEngine {
         val exactHit = snapshot.minExactOrderIndex(facts)
         trace?.exactCandidate = exactHit
 
+        // Короткий номер: только точное правило по номеру, всё остальное пропускается (ТЗ §5.4).
+        //
+        // Индекс по построению содержит ровно правила `NUMBER` + `EXACT`, поэтому достаточно
+        // не идти в проход по шаблонным. Итог при промахе — `ALLOW`, причём **независимо**
+        // от `default_action`: «не блокируются ничем, кроме точного правила» означает и режим
+        // «блокировать всё, кроме разрешённого» тоже.
+        if (isShortProtected(facts)) {
+            exactHit?.let { return hit(it, flags) }
+            return Decision(CallAction.ALLOW, DecisionReason.SHORT_NUMBER, degradations = flags)
+        }
+
         for (rule in snapshot.patternRules) {
             if (exactHit != null && rule.orderIndex > exactHit.orderIndex) break
 
@@ -137,12 +148,12 @@ public object RuleEngine {
                 Matcher.matches(rule, facts, budget.perRuleNanos)
             } catch (_: RegexBudgetExceeded) {
                 flags = flags or Degradation.RULE_SKIPPED.bit
-                if (rule.action == CallAction.ALLOW) flags = flags or Degradation.ALLOW_RULE_SKIPPED.bit
+                if (!rule.action.blocks) flags = flags or Degradation.ALLOW_RULE_SKIPPED.bit
                 trace?.add(TraceStep(rule, matched = false, skippedReason = "бюджет regex"))
                 continue
             } catch (t: Throwable) {
                 flags = flags or Degradation.RULE_SKIPPED.bit
-                if (rule.action == CallAction.ALLOW) flags = flags or Degradation.ALLOW_RULE_SKIPPED.bit
+                if (!rule.action.blocks) flags = flags or Degradation.ALLOW_RULE_SKIPPED.bit
                 trace?.add(TraceStep(rule, matched = false, skippedReason = t.message ?: "ошибка"))
                 continue
             }
@@ -163,13 +174,21 @@ public object RuleEngine {
     /**
      * Итог по сработавшему правилу, с одной поправкой.
      *
-     * Если по пути было пропущено **разрешающее** правило, блокировка понижается до разрешения:
-     * по весам ТЗ §5.1 все разрешающие правила стоят выше блокирующих, значит пропуск сбойного
-     * разрешающего превратил бы разрешённый звонок в заблокированный — ровно то, что запрещает
-     * §1.1 (архитектура §6.7).
+     * Если по пути было пропущено **не блокирующее** правило, итог понижается до разрешения:
+     * по весам ТЗ §5.1 такие правила стоят выше блокирующих, значит пропуск сбойного превратил
+     * бы прошедший звонок в заблокированный — ровно то, что запрещает §1.1 (архитектура §6.7).
+     *
+     * «Не блокирующее», а не «разрешающее»: `SILENCE` звонок тоже пропускает — телефон молчит,
+     * но ответить можно. Пропуск сбойного `SILENCE` с последующим `REJECT` — то же превращение
+     * «прошёл» в «заблокирован», просто для другого действия.
+     *
+     * Понижение работает и в обратную сторону: пропущенное `ALLOW` при совпавшем `SILENCE`
+     * оставило бы телефон молчащим, то есть врач не дозвонился бы. Поэтому понижается любое
+     * действие, кроме самого `ALLOW`, и всегда до `ALLOW` — как самого безопасного исхода.
      */
     private fun hit(rule: CompiledRule, flags: Int): Decision {
-        val downgrade = rule.action.blocks && (flags and Degradation.ALLOW_RULE_SKIPPED.bit) != 0
+        val downgrade = rule.action != CallAction.ALLOW &&
+            (flags and Degradation.ALLOW_RULE_SKIPPED.bit) != 0
         return Decision(
             action = if (downgrade) CallAction.ALLOW else rule.action,
             reason = DecisionReason.RULE_MATCH,
@@ -177,6 +196,21 @@ public object RuleEngine {
             degradations = flags,
         )
     }
+
+    /**
+     * Номер, защищённый правилом «короткие не блокируются ничем, кроме точного» (ТЗ §5.4).
+     *
+     * Порог 3 цифры — из ТЗ, и он **не** совпадает с `NumberForms.isShort` (до 6 цифр):
+     * тот отвечает на другой вопрос — переводится ли номер в E.164. Использовать его здесь
+     * значило бы молча отключить правила для четырёх-шестизначных сервисных номеров.
+     */
+    private fun isShortProtected(facts: CallFacts): Boolean {
+        val digits = facts.number.digits
+        return digits.isNotEmpty() && digits.length <= SHORT_PROTECTED_DIGITS
+    }
+
+    /** ТЗ §5.4: «короткие номера ≤ 3 цифр не блокируются ничем, кроме точного правила». */
+    public const val SHORT_PROTECTED_DIGITS: Int = 3
 
     private fun degradationsOf(facts: CallFacts): Int {
         var flags = 0
@@ -218,6 +252,15 @@ public object RuleEngine {
         }
 
         var flags = degradationsOf(facts)
+
+        // Та же защита коротких номеров, что и в быстром проходе: иначе эталон перестанет
+        // быть эталоном, и property-тест начнёт доказывать расхождение вместо совпадения.
+        if (isShortProtected(facts)) {
+            val exact = snapshot.minExactOrderIndex(facts)
+            exact?.let { return hit(it, flags) }
+            return Decision(CallAction.ALLOW, DecisionReason.SHORT_NUMBER, degradations = flags)
+        }
+
         val all = (snapshot.patternRules + snapshot.exactNumberIndex.values.flatten())
             .distinctBy { it.id to it.orderIndex }
             .sortedBy { it.orderIndex }
@@ -227,7 +270,7 @@ public object RuleEngine {
                 Matcher.matches(rule, facts, budget.perRuleNanos)
             } catch (_: Throwable) {
                 flags = flags or Degradation.RULE_SKIPPED.bit
-                if (rule.action == CallAction.ALLOW) flags = flags or Degradation.ALLOW_RULE_SKIPPED.bit
+                if (!rule.action.blocks) flags = flags or Degradation.ALLOW_RULE_SKIPPED.bit
                 continue
             }
             if (matched) return hit(rule, flags)
