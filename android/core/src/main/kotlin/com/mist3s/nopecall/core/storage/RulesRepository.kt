@@ -12,6 +12,7 @@ import com.mist3s.nopecall.engine.RegexValidator
 import com.mist3s.nopecall.engine.Rule
 import com.mist3s.nopecall.engine.RuleSnapshot
 import com.mist3s.nopecall.engine.RuleTarget
+import com.mist3s.nopecall.engine.splitCategoryPatterns
 import com.mist3s.nopecall.engine.translitVariantsByDefault
 import com.mist3s.nopecall.engine.SnapshotBuilder
 
@@ -142,7 +143,47 @@ public class RulesRepository(
 
         if (matchType == MatchType.REGEX) return RegexValidator.validate(pattern)
 
-        val canonical = when (target) {
+        // Разбор и канонизация — тем же способом, что при сборке снимка: иначе редактор
+        // покажет не то, что окажется в снимке. Инвариант закреплён тестом.
+        //
+        // У правила по категории шаблонов может быть несколько (перечисление через запятую),
+        // и канонический — **первый** из них, а не склейка всех: склейка дала бы шаблон
+        // `dostavkabank`, которого не существует.
+        val rawParts = if (target == RuleTarget.NAME_CATEGORY) {
+            splitCategoryPatterns(pattern).ifEmpty { listOf(pattern) }
+        } else {
+            listOf(pattern)
+        }
+        val parts = rawParts.map { canonizeOne(target, matchType, it) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val canonical = parts.firstOrNull()
+            ?: return PatternCheck.Invalid(
+                "после нормализации шаблон пуст: в нём нет ни цифр, ни букв"
+            )
+
+        val variants = when {
+            target.translitVariantsByDefault() ->
+                parts.flatMap { NameCanonizer.variantsOf(it, limit = VARIANT_LIMIT) }
+                    .distinct()
+                    .take(VARIANT_LIMIT)
+            // Несколько категорий без вариантов написания — всё равно набор: иначе правило
+            // искало бы только первую.
+            parts.size > 1 -> parts
+            else -> emptyList()
+        }
+        return PatternCheck.Ok(
+            canonical = canonical,
+            variants = variants,
+            literal = null,
+            variantsTruncated = variants.size >= VARIANT_LIMIT,
+            parts = parts,
+        )
+    }
+
+    /** Канонизация одного шаблона. Повторяет `SnapshotBuilder.canonizePattern`. */
+    private fun canonizeOne(target: RuleTarget, matchType: MatchType, pattern: String): String =
+        when (target) {
             RuleTarget.NUMBER -> canonizeNumberPattern(matchType, pattern)
             else -> if (matchType == MatchType.TOKEN) {
                 NameCanonizer.patternTokens(pattern).joinToString("")
@@ -150,24 +191,6 @@ public class RulesRepository(
                 NameCanonizer.canonizePattern(pattern)
             }
         }
-        if (canonical.isEmpty()) {
-            return PatternCheck.Invalid("после нормализации шаблон пуст: в нём нет ни цифр, ни букв")
-        }
-
-        // Тем же условием, что и при сохранении: иначе редактор показывает написания,
-        // которых в снимке не будет, и правило ищет одно из них.
-        val variants = if (target.translitVariantsByDefault()) {
-            NameCanonizer.variantsOf(canonical, limit = VARIANT_LIMIT)
-        } else {
-            emptyList()
-        }
-        return PatternCheck.Ok(
-            canonical = canonical,
-            variants = variants,
-            literal = null,
-            variantsTruncated = variants.size >= VARIANT_LIMIT,
-        )
-    }
 
     private fun canonizeNumberPattern(matchType: MatchType, pattern: String): String {
         val digits = pattern.filter { it.isDigit() }

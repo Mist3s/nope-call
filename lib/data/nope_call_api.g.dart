@@ -337,6 +337,7 @@ class PatternCheckResult {
     required this.canonical,
     required this.variants,
     required this.variantsTruncated,
+    required this.parts,
     this.error,
   });
 
@@ -350,10 +351,23 @@ class PatternCheckResult {
 
   bool variantsTruncated;
 
+  /// Перечисленные значения в канонической форме — по одному на категорию.
+  ///
+  /// Отдельно от [variants]: `[gostinicy, dostavka]` — это две категории, а
+  /// `[poleznyy, polezniy]` — два написания одной, и объяснять их надо по-разному.
+  List<String> parts;
+
   String? error;
 
   List<Object?> _toList() {
-    return <Object?>[valid, canonical, variants, variantsTruncated, error];
+    return <Object?>[
+      valid,
+      canonical,
+      variants,
+      variantsTruncated,
+      parts,
+      error,
+    ];
   }
 
   Object encode() {
@@ -367,7 +381,8 @@ class PatternCheckResult {
       canonical: result[1]! as String,
       variants: (result[2]! as List<Object?>).cast<String>(),
       variantsTruncated: result[3]! as bool,
-      error: result[4] as String?,
+      parts: (result[4]! as List<Object?>).cast<String>(),
+      error: result[5] as String?,
     );
   }
 
@@ -384,6 +399,7 @@ class PatternCheckResult {
         _deepEquals(canonical, other.canonical) &&
         _deepEquals(variants, other.variants) &&
         _deepEquals(variantsTruncated, other.variantsTruncated) &&
+        _deepEquals(parts, other.parts) &&
         _deepEquals(error, other.error);
   }
 
@@ -393,7 +409,7 @@ class PatternCheckResult {
 
   @override
   String toString() {
-    return 'PatternCheckResult(valid: $valid, canonical: $canonical, variants: $variants, variantsTruncated: $variantsTruncated, error: $error)';
+    return 'PatternCheckResult(valid: $valid, canonical: $canonical, variants: $variants, variantsTruncated: $variantsTruncated, parts: $parts, error: $error)';
   }
 }
 
@@ -2024,6 +2040,7 @@ class TraceStepDto {
     required this.title,
     required this.target,
     required this.matchType,
+    required this.patterns,
     required this.canonical,
     required this.matched,
     this.skippedReason,
@@ -2037,6 +2054,10 @@ class TraceStepDto {
 
   String matchType;
 
+  /// Все шаблоны, с которыми сравнивалось правило. У правила по категории здесь
+  /// перечисленные категории, у правила по названию — варианты написания.
+  List<String> patterns;
+
   String canonical;
 
   bool matched;
@@ -2049,6 +2070,7 @@ class TraceStepDto {
       title,
       target,
       matchType,
+      patterns,
       canonical,
       matched,
       skippedReason,
@@ -2066,9 +2088,10 @@ class TraceStepDto {
       title: result[1]! as String,
       target: result[2]! as String,
       matchType: result[3]! as String,
-      canonical: result[4]! as String,
-      matched: result[5]! as bool,
-      skippedReason: result[6] as String?,
+      patterns: (result[4]! as List<Object?>).cast<String>(),
+      canonical: result[5]! as String,
+      matched: result[6]! as bool,
+      skippedReason: result[7] as String?,
     );
   }
 
@@ -2085,6 +2108,7 @@ class TraceStepDto {
         _deepEquals(title, other.title) &&
         _deepEquals(target, other.target) &&
         _deepEquals(matchType, other.matchType) &&
+        _deepEquals(patterns, other.patterns) &&
         _deepEquals(canonical, other.canonical) &&
         _deepEquals(matched, other.matched) &&
         _deepEquals(skippedReason, other.skippedReason);
@@ -2096,7 +2120,7 @@ class TraceStepDto {
 
   @override
   String toString() {
-    return 'TraceStepDto(ruleId: $ruleId, title: $title, target: $target, matchType: $matchType, canonical: $canonical, matched: $matched, skippedReason: $skippedReason)';
+    return 'TraceStepDto(ruleId: $ruleId, title: $title, target: $target, matchType: $matchType, patterns: $patterns, canonical: $canonical, matched: $matched, skippedReason: $skippedReason)';
   }
 }
 

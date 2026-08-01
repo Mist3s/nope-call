@@ -20,11 +20,30 @@ mkdir -p "$DIST"
 # можно было проверить снаружи: потеря ключа означает невозможность обновить установленные копии.
 APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner | sort -V | tail -1)"
 UNIVERSAL_SRC="$APK_DIR/app-release.apk"
+
+# Извлекается ровно 64 шестнадцатеричных знака, а не «поле после первого двоеточия».
+#
+# Так было: `awk -F': ' '{print $2}'`. Метка строки у apksigner на разных версиях
+# build-tools содержит своё двоеточие, и на раннере вторым полем оказалась сама подпись
+# строки — в манифест ушло `CERTIFICATE SHA-256 DIGEST`. Апдейтер отказался обновляться
+# (и правильно), но узналось это на телефоне пользователя, а не в сборке.
 CERT_SHA="$(
     "$APKSIGNER" verify --print-certs "$UNIVERSAL_SRC" 2>/dev/null |
-        awk -F': ' '/SHA-256 digest/ {print toupper($2); exit}'
+        sed -nE 's/.*certificate SHA-256 digest:[[:space:]]*([0-9a-fA-F]{64}).*/\1/p' |
+        head -1 |
+        tr '[:lower:]' '[:upper:]'
 )"
-[ -n "$CERT_SHA" ] || { echo "не удалось прочитать отпечаток сертификата" >&2; exit 1; }
+
+# Проверка формата обязательна: непустое значение ещё не значит отпечаток. Манифест
+# с мусором в этом поле ломает обновление у всех, кто уже установил приложение,
+# и починить его можно только новым релизом.
+if ! printf '%s' "$CERT_SHA" | grep -Eq '^[0-9A-F]{64}$'; then
+    echo "не удалось прочитать отпечаток сертификата из $UNIVERSAL_SRC" >&2
+    echo "получено: \"$CERT_SHA\"" >&2
+    echo "вывод apksigner:" >&2
+    "$APKSIGNER" verify --print-certs "$UNIVERSAL_SRC" >&2 2>&1 || true
+    exit 1
+fi
 printf '%s\n' "$CERT_SHA" > "$DIST/signing-cert-sha256.txt"
 
 # --split-per-abi даёт по файлу на архитектуру, плюс отдельно собирается универсальный.
@@ -71,6 +90,17 @@ case "$VERSION" in *-*) PRERELEASE=true ;; esac
     for a in "${ASSETS[@]:1}"; do printf ',\n    %s' "$a"; done
     printf '\n  ]\n}\n'
 } > "$DIST/latest.json"
+
+# Манифест проверяется перед публикацией: релиз с битым отпечатком или битой суммой хуже,
+# чем отсутствие релиза, — установленные копии обновиться не смогут.
+grep -Eq '"signing_cert_sha256": "[0-9A-F]{64}"' "$DIST/latest.json" || {
+    echo "в latest.json отпечаток сертификата не похож на отпечаток" >&2
+    exit 1
+}
+if grep -Ec '"sha256":"[0-9a-f]{64}"' "$DIST/latest.json" | grep -q '^0$'; then
+    echo "в latest.json нет ни одной корректной суммы sha256" >&2
+    exit 1
+fi
 
 echo "Отпечаток подписи: $CERT_SHA"
 echo "Готово: $DIST/"

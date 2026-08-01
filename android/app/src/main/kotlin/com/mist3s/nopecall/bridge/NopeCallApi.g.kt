@@ -384,6 +384,13 @@ data class PatternCheckResult (
    */
   val variants: List<String>,
   val variantsTruncated: Boolean,
+  /**
+   * Перечисленные значения в канонической форме — по одному на категорию.
+   *
+   * Отдельно от [variants]: `[gostinicy, dostavka]` — это две категории, а
+   * `[poleznyy, polezniy]` — два написания одной, и объяснять их надо по-разному.
+   */
+  val parts: List<String>,
   val error: String? = null
 )
  {
@@ -393,8 +400,9 @@ data class PatternCheckResult (
       val canonical = pigeonVar_list[1] as String
       val variants = pigeonVar_list[2] as List<String>
       val variantsTruncated = pigeonVar_list[3] as Boolean
-      val error = pigeonVar_list[4] as String?
-      return PatternCheckResult(valid, canonical, variants, variantsTruncated, error)
+      val parts = pigeonVar_list[4] as List<String>
+      val error = pigeonVar_list[5] as String?
+      return PatternCheckResult(valid, canonical, variants, variantsTruncated, parts, error)
     }
   }
   fun toList(): List<Any?> {
@@ -403,6 +411,7 @@ data class PatternCheckResult (
       canonical,
       variants,
       variantsTruncated,
+      parts,
       error,
     )
   }
@@ -414,7 +423,7 @@ data class PatternCheckResult (
       return true
     }
     val other = other as PatternCheckResult
-    return NopeCallApiPigeonUtils.deepEquals(this.valid, other.valid) && NopeCallApiPigeonUtils.deepEquals(this.canonical, other.canonical) && NopeCallApiPigeonUtils.deepEquals(this.variants, other.variants) && NopeCallApiPigeonUtils.deepEquals(this.variantsTruncated, other.variantsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.error, other.error)
+    return NopeCallApiPigeonUtils.deepEquals(this.valid, other.valid) && NopeCallApiPigeonUtils.deepEquals(this.canonical, other.canonical) && NopeCallApiPigeonUtils.deepEquals(this.variants, other.variants) && NopeCallApiPigeonUtils.deepEquals(this.variantsTruncated, other.variantsTruncated) && NopeCallApiPigeonUtils.deepEquals(this.parts, other.parts) && NopeCallApiPigeonUtils.deepEquals(this.error, other.error)
   }
 
   override fun hashCode(): Int {
@@ -423,11 +432,12 @@ data class PatternCheckResult (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.canonical)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.variants)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.variantsTruncated)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.parts)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.error)
     return result
   }
   override fun toString(): String {
-    return "PatternCheckResult(valid=$valid, canonical=$canonical, variants=$variants, variantsTruncated=$variantsTruncated, error=$error)"
+    return "PatternCheckResult(valid=$valid, canonical=$canonical, variants=$variants, variantsTruncated=$variantsTruncated, parts=$parts, error=$error)"
   }
 }
 
@@ -1768,6 +1778,11 @@ data class TraceStepDto (
   val title: String,
   val target: String,
   val matchType: String,
+  /**
+   * Все шаблоны, с которыми сравнивалось правило. У правила по категории здесь
+   * перечисленные категории, у правила по названию — варианты написания.
+   */
+  val patterns: List<String>,
   val canonical: String,
   val matched: Boolean,
   val skippedReason: String? = null
@@ -1779,10 +1794,11 @@ data class TraceStepDto (
       val title = pigeonVar_list[1] as String
       val target = pigeonVar_list[2] as String
       val matchType = pigeonVar_list[3] as String
-      val canonical = pigeonVar_list[4] as String
-      val matched = pigeonVar_list[5] as Boolean
-      val skippedReason = pigeonVar_list[6] as String?
-      return TraceStepDto(ruleId, title, target, matchType, canonical, matched, skippedReason)
+      val patterns = pigeonVar_list[4] as List<String>
+      val canonical = pigeonVar_list[5] as String
+      val matched = pigeonVar_list[6] as Boolean
+      val skippedReason = pigeonVar_list[7] as String?
+      return TraceStepDto(ruleId, title, target, matchType, patterns, canonical, matched, skippedReason)
     }
   }
   fun toList(): List<Any?> {
@@ -1791,6 +1807,7 @@ data class TraceStepDto (
       title,
       target,
       matchType,
+      patterns,
       canonical,
       matched,
       skippedReason,
@@ -1804,7 +1821,7 @@ data class TraceStepDto (
       return true
     }
     val other = other as TraceStepDto
-    return NopeCallApiPigeonUtils.deepEquals(this.ruleId, other.ruleId) && NopeCallApiPigeonUtils.deepEquals(this.title, other.title) && NopeCallApiPigeonUtils.deepEquals(this.target, other.target) && NopeCallApiPigeonUtils.deepEquals(this.matchType, other.matchType) && NopeCallApiPigeonUtils.deepEquals(this.canonical, other.canonical) && NopeCallApiPigeonUtils.deepEquals(this.matched, other.matched) && NopeCallApiPigeonUtils.deepEquals(this.skippedReason, other.skippedReason)
+    return NopeCallApiPigeonUtils.deepEquals(this.ruleId, other.ruleId) && NopeCallApiPigeonUtils.deepEquals(this.title, other.title) && NopeCallApiPigeonUtils.deepEquals(this.target, other.target) && NopeCallApiPigeonUtils.deepEquals(this.matchType, other.matchType) && NopeCallApiPigeonUtils.deepEquals(this.patterns, other.patterns) && NopeCallApiPigeonUtils.deepEquals(this.canonical, other.canonical) && NopeCallApiPigeonUtils.deepEquals(this.matched, other.matched) && NopeCallApiPigeonUtils.deepEquals(this.skippedReason, other.skippedReason)
   }
 
   override fun hashCode(): Int {
@@ -1813,13 +1830,14 @@ data class TraceStepDto (
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.title)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.target)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matchType)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.patterns)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.canonical)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.matched)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.skippedReason)
     return result
   }
   override fun toString(): String {
-    return "TraceStepDto(ruleId=$ruleId, title=$title, target=$target, matchType=$matchType, canonical=$canonical, matched=$matched, skippedReason=$skippedReason)"
+    return "TraceStepDto(ruleId=$ruleId, title=$title, target=$target, matchType=$matchType, patterns=$patterns, canonical=$canonical, matched=$matched, skippedReason=$skippedReason)"
   }
 }
 

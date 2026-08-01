@@ -186,11 +186,19 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         target: String,
         matchType: String,
         canonicalPattern: String,
+        /**
+         * Остальные шаблоны правила: варианты написания и — у правила по категории —
+         * перечисленные категории. Раньше предпросмотр считал только канонический,
+         * то есть занижал результат у любого правила с вариантами.
+         */
+        variants: List<String> = emptyList(),
         contacts: ContactNumberSource = ContactNumberSource.UNAVAILABLE,
         windowSize: Int = PREVIEW_WINDOW,
         contactLimit: Int = CONTACT_PREVIEW_LIMIT,
     ): PreviewResult {
-        val allowRules = countAllowRulesCovered(target, matchType, canonicalPattern)
+        // Сопоставление ORом по всему набору — как в движке (`CompiledRule.allPatterns`).
+        val patterns = (listOf(canonicalPattern) + variants).filter { it.isNotEmpty() }.distinct()
+        val allowRules = countAllowRulesCovered(target, matchType, patterns)
         val contactsPreview =
             contactPreview(target, matchType, canonicalPattern, contacts, contactLimit)
 
@@ -217,7 +225,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
                 "NAME_CATEGORY" -> row.categoryFold.orEmpty()
                 else -> row.nameFold.orEmpty()
             }
-            matches(value, row.nameTokens.orEmpty(), matchType, canonicalPattern)
+            patterns.any { matches(value, row.nameTokens.orEmpty(), matchType, it) }
         }
 
         // Записи зеркала, которым нашего события не нашлось, тоже видны в журнале — значит
@@ -226,7 +234,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
         if (target == "NUMBER") {
             val mirror = db.mirror().digitsForPreview(windowSize)
             mirrorSize = mirror.size
-            matched += mirror.count { matches(it, "", matchType, canonicalPattern) }
+            matched += mirror.count { digits -> patterns.any { matches(digits, "", matchType, it) } }
         } else {
             // Названия зеркала канонизируются на месте — тем же движком, которым канонизируются
             // события, поэтому подсчёт остаётся точным. Хранить разбор в зеркале было бы вторым
@@ -249,7 +257,7 @@ public class JournalRepository(private val db: NopeCallDatabase) {
                     .takeIf { it.isNotEmpty() }
                     ?.joinToString(" ", prefix = " ", postfix = " ")
                     .orEmpty()
-                text != null && matches(text.fold, tokens, matchType, canonicalPattern)
+                text != null && patterns.any { matches(text.fold, tokens, matchType, it) }
             }
         }
 
@@ -294,9 +302,9 @@ public class JournalRepository(private val db: NopeCallDatabase) {
     private suspend fun countAllowRulesCovered(
         target: String,
         matchType: String,
-        canonicalPattern: String,
+        patterns: List<String>,
     ): Int? {
-        if (canonicalPattern.isEmpty()) return null
+        if (patterns.isEmpty()) return null
         if (matchType == "REGEX" || matchType == "IN_CONTACTS") return null
         val domain = patternDomainOf(target) ?: return null
 
@@ -306,8 +314,10 @@ public class JournalRepository(private val db: NopeCallDatabase) {
             // между ними было бы случайным.
             patternDomainOf(rule.targetType) == domain &&
                 rule.matchType != "REGEX" && rule.matchType != "IN_CONTACTS" &&
-                allowPatternsOf(rule).any { pattern ->
-                    matches(pattern, " $pattern ", matchType, canonicalPattern)
+                allowPatternsOf(rule).any { allow ->
+                    // По всему набору нового правила: у правила по категории их несколько,
+                    // и считать перекрытие по первой значило бы занижать предупреждение.
+                    patterns.any { matches(allow, " $allow ", matchType, it) }
                 }
         }
     }

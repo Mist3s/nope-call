@@ -292,7 +292,7 @@ internal class RulesApiImpl(
         val target = enumOf<RuleTarget>(targetType)
         val match = enumOf<MatchType>(matchType)
         if (target == null || match == null) {
-            return PatternCheckResult(false, "", emptyList(), false, "неизвестный тип правила")
+            return PatternCheckResult(false, "", emptyList(), false, emptyList(), "неизвестный тип правила")
         }
         return when (val check = CoreGraph.rules.validate(target, match, pattern)) {
             is PatternCheck.Ok -> PatternCheckResult(
@@ -300,14 +300,15 @@ internal class RulesApiImpl(
                 canonical = check.canonical,
                 variants = check.variants,
                 variantsTruncated = check.variantsTruncated,
+                parts = check.parts,
                 error = null,
             )
 
             is PatternCheck.Invalid ->
-                PatternCheckResult(false, "", emptyList(), false, check.reason)
+                PatternCheckResult(false, "", emptyList(), false, emptyList(), check.reason)
 
             is PatternCheck.TooExpensive ->
-                PatternCheckResult(false, "", emptyList(), false, check.reason)
+                PatternCheckResult(false, "", emptyList(), false, emptyList(), check.reason)
         }
     }
 
@@ -329,6 +330,9 @@ internal class RulesApiImpl(
                     target = targetType,
                     matchType = matchType,
                     canonicalPattern = canonical,
+                    // Весь набор, а не только канонический: у правила по категории здесь
+                    // перечисленные категории, у правила по названию — варианты написания.
+                    variants = (check as? PatternCheck.Ok)?.variants.orEmpty(),
                     // Книга читается здесь, а не в горячем пути: предпросмотр рисуется
                     // в редакторе, и обращение к ContentProvider тут допустимо (ТЗ §18 п. 16).
                     contacts = CoreGraph.contactNumbers,
@@ -963,6 +967,7 @@ internal class DiagnosticsApiImpl(
                             target = it.target,
                             matchType = it.matchType,
                             canonical = it.canonical,
+                            patterns = it.patterns,
                             matched = it.matched,
                             skippedReason = it.skippedReason,
                         )

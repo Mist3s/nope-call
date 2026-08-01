@@ -96,6 +96,7 @@ class PatternCheckResult {
     required this.canonical,
     required this.variants,
     required this.variantsTruncated,
+    required this.parts,
     this.error,
   });
 
@@ -106,6 +107,12 @@ class PatternCheckResult {
   /// сравнение недопустимо, ложное срабатывание — пропущенный звонок от врача (ТЗ §6.3.2).
   List<String> variants;
   bool variantsTruncated;
+
+  /// Перечисленные значения в канонической форме — по одному на категорию.
+  ///
+  /// Отдельно от [variants]: `[gostinicy, dostavka]` — это две категории, а
+  /// `[poleznyy, polezniy]` — два написания одной, и объяснять их надо по-разному.
+  List<String> parts;
   String? error;
 }
 
@@ -750,6 +757,7 @@ class TraceStepDto {
     required this.target,
     required this.matchType,
     required this.canonical,
+    required this.patterns,
     required this.matched,
     this.skippedReason,
   });
@@ -758,6 +766,10 @@ class TraceStepDto {
   String title;
   String target;
   String matchType;
+
+  /// Все шаблоны, с которыми сравнивалось правило. У правила по категории здесь
+  /// перечисленные категории, у правила по названию — варианты написания.
+  List<String> patterns;
   String canonical;
   bool matched;
   String? skippedReason;

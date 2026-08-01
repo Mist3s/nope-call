@@ -196,7 +196,14 @@ public class UpdateManager(
         val expected = Digests.normalizeFingerprint(manifest.signingCertSha256)
             ?: return DownloadResult.Failure(
                 UpdateFailureKind.FORMAT,
-                "в манифесте неверный отпечаток сертификата: \"${manifest.signingCertSha256}\"",
+                // Это дефект самого релиза, а не устройства, и пользователю надо сказать, что
+                // делать: APK со страницы выпуска ставится руками и подписан тем же ключом.
+                // Так и случилось в 0.1.2: в поле отпечатка оказалась подпись строки вывода
+                // apksigner, потому что сборочный скрипт брал «поле после двоеточия».
+                "в манифесте выпуска неверный отпечаток сертификата: " +
+                    "\"${manifest.signingCertSha256}\". Это ошибка сборки релиза, " +
+                    "а не вашего телефона — обновление можно поставить вручную " +
+                    "со страницы выпуска",
                 manifest.notesUrl,
             )
         val installedCerts = installed.signingCertsSha256.mapNotNull { Digests.normalizeFingerprint(it) }

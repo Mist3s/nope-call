@@ -392,6 +392,56 @@ class RuleEngineTest {
         assertTrue(check is PatternCheck.TooExpensive, "получено: $check")
     }
 
+    // --- несколько категорий в одном правиле (41-ФЗ) -------------------------------------------
+
+    @Test
+    fun `правило по категории ловит любую из перечисленных`() {
+        // Категория приходит из утверждённого перечня 41-ФЗ, и пользователь думает списком:
+        // «доставка, реклама, опросы». Пять правил по одной категории — это пять мест,
+        // где можно ошибиться порядком.
+        val s = snapshot(
+            rule(RuleTarget.NAME_CATEGORY, MatchType.EXACT, "Доставка, Реклама, Соц. опрос",
+                order = 600, variants = true)
+        )
+
+        for (name in listOf(
+            "OOO Romashka: dostavka",
+            "OOO Romashka: reklama",
+        )) {
+            assertEquals(CallAction.REJECT, decide(facts(name = name), s).action, name)
+        }
+        // Категории вне списка правило не трогает.
+        assertEquals(
+            CallAction.ALLOW,
+            decide(facts(name = "BANK RUSSKIY STANDART: finansy"), s).action,
+        )
+    }
+
+    @Test
+    fun `перечисление работает и без вариантов написания`() {
+        // Набор шаблонов нужен сам по себе: при пустых вариантах правило искало бы только
+        // первую категорию, а остальные молча игнорировало.
+        val s = snapshot(
+            rule(RuleTarget.NAME_CATEGORY, MatchType.EXACT, "dostavka, reklama",
+                order = 600, variants = false)
+        )
+
+        assertEquals(CallAction.REJECT, decide(facts(name = "OOO A: dostavka"), s).action)
+        assertEquals(CallAction.REJECT, decide(facts(name = "OOO B: reklama"), s).action)
+    }
+
+    @Test
+    fun `запятая в наименовании остаётся частью текста`() {
+        // Делить по запятой можно только категорию: в наименовании она часть названия,
+        // и правило «ООО Ромашка, филиал» не должно превращаться в два шаблона.
+        val s = snapshot(
+            rule(RuleTarget.NAME_ORG, MatchType.CONTAINS, "Ромашка, филиал", order = 600)
+        )
+
+        assertEquals(CallAction.REJECT, decide(facts(name = "OOO Romashka, filial: dostavka"), s).action)
+        assertEquals(CallAction.ALLOW, decide(facts(name = "OOO Romashka: dostavka"), s).action)
+    }
+
     // --- короткие номера: правило безопасности ТЗ §5.4 ----------------------------------------
 
     @Test

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../data/nope_call_api.g.dart';
 import '../../data/repository.dart';
 import '../../widgets/async_view.dart';
+import 'call_categories.dart';
 
 /// Редактор правила (ТЗ §9.5).
 ///
@@ -238,8 +239,14 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
             TextField(
               controller: _patternController,
               decoration: InputDecoration(
-                labelText: 'Значение',
-                hintText: _target == 'NUMBER' ? '8495 или +7495' : 'реклама',
+                labelText: _target == 'NAME_CATEGORY'
+                    ? 'Категории, через запятую'
+                    : 'Значение',
+                hintText: _target == 'NUMBER'
+                    ? '8495 или +7495'
+                    : (_target == 'NAME_CATEGORY'
+                          ? 'Доставка, Реклама'
+                          : 'реклама'),
                 border: const OutlineInputBorder(),
                 errorText: check != null && !check.valid ? check.error : null,
                 // Без этого объяснение обрезается многоточием: у errorMaxLines значение
@@ -248,12 +255,42 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
                 // «после нормализации шаблон пуст: в нём нет ни цифр, ни букв» — и терялась
                 // именно та половина, которая говорит, что исправить.
                 errorMaxLines: 3,
+                // Выбор из перечня — значком в самом поле, как календарь в поле даты.
+                // Отдельная кнопка выбивалась из строя: в редакторе всё остальное —
+                // либо поле в рамке, либо строка списка.
+                suffixIcon: _target == 'NAME_CATEGORY'
+                    ? IconButton(
+                        tooltip: 'Выбрать из перечня',
+                        icon: const Icon(Icons.checklist),
+                        onPressed: _pickCategories,
+                      )
+                    : null,
               ),
             ),
+            if (_target == 'NAME_CATEGORY')
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 12),
+                child: Text(
+                  'Правило сработает при любой из перечисленных категорий. '
+                  'Значок справа — выбрать из перечня 41-ФЗ.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
           ],
           if (check != null && check.valid) ...[
             const SizedBox(height: 12),
-            _CanonicalNote(check: check, target: _target),
+            _CanonicalNote(
+              check: check,
+              target: _target,
+              // Сколько значений в поле: если после нормализации их стало меньше,
+              // подсказка обязана сказать, что одинаковые объединены, — иначе «три
+              // в поле, две в подсказке» выглядит как потеря.
+              entered: _target == 'NAME_CATEGORY'
+                  ? parseCategories(_patternController.text).length
+                  : 1,
+            ),
           ],
           if (_preview != null) ...[
             const SizedBox(height: 12),
@@ -301,6 +338,24 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
         ],
       ),
     );
+  }
+
+  /// Выбор категорий из перечня 41-ФЗ.
+  ///
+  /// Дописывает в то же поле, а не заводит скрытое состояние: поле остаётся единственным
+  /// источником истины, и введённое вручную не исчезает после выбора. Свои категории
+  /// в перечне отмечены отдельно — перечень это то, что предписано, а не то, что приходит.
+  Future<void> _pickCategories() async {
+    final selected = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) =>
+          _CategorySheet(initial: parseCategories(_patternController.text)),
+    );
+    if (selected == null || !mounted) return;
+    _patternController.text = joinCategories(selected);
+    _debounce?.cancel();
+    _revalidate();
   }
 
   Future<void> _save() async {
@@ -379,15 +434,31 @@ class _Dropdown extends StatelessWidget {
 
 /// Показывает, во что превратился шаблон и что именно правило будет искать.
 class _CanonicalNote extends StatelessWidget {
-  const _CanonicalNote({required this.check, required this.target});
+  const _CanonicalNote({
+    required this.check,
+    required this.target,
+    this.entered = 1,
+  });
 
   final PatternCheckResult check;
   final String target;
+
+  /// Сколько значений пользователь перечислил в поле.
+  final int entered;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final variants = check.variants.whereType<String>().toList();
+    // Перечисленные значения и их написания — разные сущности, и объяснять их надо
+    // по-разному: `[gostinicy, dostavka]` — две категории, `[poleznyy, polezniy]` —
+    // два написания одной. Пока список был один, подсказка про две категории писала
+    // «у одной и той же организации транслитерация бывает разной».
+    final parts = check.parts.whereType<String>().toList();
+    final several = parts.length > 1;
+    // Написания сверх самих значений: если их нет, про транслитерацию говорить нечего.
+    final spellings = variants.where((v) => !parts.contains(v)).length;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -398,15 +469,36 @@ class _CanonicalNote extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Сравнивается как: ${check.canonical}',
+            several
+                ? 'Сравнивается как: ${parts.join(', ')}'
+                : 'Сравнивается как: ${check.canonical}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (several && entered > parts.length) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Одинаковые после нормализации значения объединены: '
+              '${plural(entered, 'указано', 'указано', 'указано')} $entered, '
+              'останется ${parts.length}.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
           if (variants.length > 1) ...[
             const SizedBox(height: 8),
             Text(
-              'Правило будет искать ${variants.length} '
-              '${plural(variants.length, 'написание', 'написания', 'написаний')} — '
-              'у одной и той же организации транслитерация бывает разной:',
+              several
+                  ? (spellings > 0
+                        ? 'Правило сработает при любой из ${parts.length} '
+                              '${plural(parts.length, 'категории', 'категорий', 'категорий')}, '
+                              'и будет искать каждую в разных написаниях — всего '
+                              '${variants.length}:'
+                        : 'Правило сработает при любой из ${parts.length} '
+                              '${plural(parts.length, 'категории', 'категорий', 'категорий')}:')
+                  : 'Правило будет искать ${variants.length} '
+                        '${plural(variants.length, 'написание', 'написания', 'написаний')} — '
+                        'у одной и той же организации транслитерация бывает разной:',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 6),
@@ -486,6 +578,163 @@ class _Note extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Выбор категорий вызова из перечня 41-ФЗ плюс наблюдённые в жизни.
+///
+/// Перечень и наблюдённое разделены заголовками сознательно: первое предписано правилами
+/// маркировки, второе приходило на реальные звонки, и в перечень не входит. Смешать их
+/// значило бы выдать наблюдение за норму.
+class _CategorySheet extends StatefulWidget {
+  const _CategorySheet({required this.initial});
+
+  final List<String> initial;
+
+  @override
+  State<_CategorySheet> createState() => _CategorySheetState();
+}
+
+class _CategorySheetState extends State<_CategorySheet> {
+  late final Set<String> _selected = widget.initial.toSet();
+
+  /// Введённое вручную и не входящее ни в один список: оно обязано сохраниться.
+  late final List<String> _custom = widget.initial
+      .where(
+        (e) =>
+            !officialCallCategories.contains(e) &&
+            !observedExtraCategories.contains(e),
+      )
+      .toList();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Категории вызова', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(
+                  _selected.isEmpty
+                      ? 'Правило сработает, если категория звонка совпала с любой из '
+                            'выбранных. Показаны по-русски, а искать правило будет '
+                            'и написание транслитом.'
+                      : 'Выбрано: ${_selected.length}. Правило сработает при любой из них; '
+                            'искать будет и написание транслитом.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                _Group(title: 'Из перечня 41-ФЗ'),
+                for (final c in officialCallCategories)
+                  CheckboxListTile(
+                    dense: true,
+                    value: _selected.contains(c),
+                    title: Text(c),
+                    onChanged: (v) => setState(() {
+                      if (v == true) {
+                        _selected.add(c);
+                      } else {
+                        _selected.remove(c);
+                      }
+                    }),
+                  ),
+                _Group(title: 'Встречались на звонках, но в перечне их нет'),
+                for (final c in observedExtraCategories)
+                  CheckboxListTile(
+                    dense: true,
+                    value: _selected.contains(c),
+                    title: Text(c),
+                    onChanged: (v) => setState(() {
+                      if (v == true) {
+                        _selected.add(c);
+                      } else {
+                        _selected.remove(c);
+                      }
+                    }),
+                  ),
+                if (_custom.isNotEmpty) ...[
+                  _Group(title: 'Ваши'),
+                  for (final c in _custom)
+                    CheckboxListTile(
+                      dense: true,
+                      value: _selected.contains(c),
+                      title: Text(c),
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _selected.add(c);
+                        } else {
+                          _selected.remove(c);
+                        }
+                      }),
+                    ),
+                ],
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Отмена'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    // Порядок как в списках, а не как пользователь нажимал: иначе поле
+                    // перетасовывается при каждом открытии.
+                    onPressed: () => Navigator.of(context).pop([
+                      ...officialCallCategories.where(_selected.contains),
+                      ...observedExtraCategories.where(_selected.contains),
+                      ..._custom.where(_selected.contains),
+                    ]),
+                    child: const Text('Применить'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Group extends StatelessWidget {
+  const _Group({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        title,
+        style: theme.textTheme.labelLarge?.copyWith(
+          color: theme.colorScheme.primary,
+        ),
+      ),
     );
   }
 }

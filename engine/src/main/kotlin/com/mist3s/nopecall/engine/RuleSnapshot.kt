@@ -125,13 +125,24 @@ public class SnapshotBuilder(
             )
         }
 
-        val canonical = canonizePattern(rule, settings)
-        if (canonical.isEmpty()) return null
+        // Правило по категории может перечислять несколько категорий через запятую.
+        // Сопоставление ORом уже есть — это `allPatterns`, тот же набор, в котором лежат
+        // варианты написания. Ничего нового заводить не пришлось.
+        val parts = patternsOf(rule).map { canonizePattern(rule, settings, it) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val canonical = parts.firstOrNull() ?: return null
 
-        val variants = if (rule.translitVariants || rule.leetVariants) {
-            Translit.variants(canonical, leet = rule.leetVariants, limit = variantLimit)
-        } else {
-            emptyList()
+        val variants = when {
+            rule.translitVariants || rule.leetVariants ->
+                parts.flatMap { Translit.variants(it, leet = rule.leetVariants, limit = variantLimit) }
+                    .distinct()
+                    .take(variantLimit)
+            // Без вариантов написания набор всё равно нужен, если категорий несколько:
+            // `allPatterns` при пустых вариантах отдаёт только канонический шаблон,
+            // и остальные категории правило искать перестало бы.
+            parts.size > 1 -> parts
+            else -> emptyList()
         }
 
         return CompiledRule(
@@ -153,10 +164,22 @@ public class SnapshotBuilder(
      * Шаблон проходит **тот же** конвейер, что входные данные. Иначе `8495` не поймает
      * `+74951234567`, а `реклама` не поймает `Reklama` (ТЗ §6.2.1, §6.3.2).
      */
-    private fun canonizePattern(rule: Rule, settings: DecisionSettings): String =
+    /** Шаблоны правила: у категории их может быть несколько, у остальных целей — один. */
+    private fun patternsOf(rule: Rule): List<String> =
+        if (rule.target == RuleTarget.NAME_CATEGORY) {
+            splitCategoryPatterns(rule.pattern).ifEmpty { listOf(rule.pattern) }
+        } else {
+            listOf(rule.pattern)
+        }
+
+    private fun canonizePattern(
+        rule: Rule,
+        settings: DecisionSettings,
+        pattern: String = rule.pattern,
+    ): String =
         when (rule.target) {
             RuleTarget.NUMBER -> {
-                val forms = normalizer.normalize(rule.pattern, settings.region)
+                val forms = normalizer.normalize(pattern, settings.region)
                 when (rule.matchType) {
                     // У точного правила шаблон — целый номер, значит его надо привести
                     // к каноническому виду целиком.
@@ -164,15 +187,15 @@ public class SnapshotBuilder(
                     // У префикса и подстроки шаблон — часть номера, его нельзя «дописывать»
                     // до полного: `8495` это префикс, а не номер. Достаточно цифр
                     // с переписанным магистральным префиксом.
-                    else -> canonizeNumberFragment(rule.pattern)
+                    else -> canonizeNumberFragment(pattern)
                 }
             }
 
             RuleTarget.NAME, RuleTarget.NAME_ORG, RuleTarget.NAME_CATEGORY ->
                 if (rule.matchType == MatchType.TOKEN) {
-                    NameCanonizer.patternTokens(rule.pattern).joinToString("")
+                    NameCanonizer.patternTokens(pattern).joinToString("")
                 } else {
-                    NameCanonizer.canonizePattern(rule.pattern)
+                    NameCanonizer.canonizePattern(pattern)
                 }
 
             RuleTarget.CONTACT -> ""

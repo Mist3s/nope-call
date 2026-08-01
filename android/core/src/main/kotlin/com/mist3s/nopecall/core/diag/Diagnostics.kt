@@ -148,6 +148,12 @@ public data class TestRunResult(
         val target: String,
         val matchType: String,
         val canonical: String,
+        /**
+         * Все шаблоны, с которыми сравнивалось правило: варианты написания и — у правила
+         * по категории — перечисленные категории. Раньше в трассе стоял только первый,
+         * и правило на три категории выглядело как правило на одну.
+         */
+        val patterns: List<String>,
         val matched: Boolean,
         val skippedReason: String?,
     )
@@ -277,6 +283,7 @@ public class DiagnosticsRepository(
                     target = step.rule.target.name,
                     matchType = step.rule.matchType.name,
                     canonical = step.rule.canonical,
+                    patterns = step.rule.allPatterns,
                     matched = step.matched,
                     skippedReason = step.skippedReason,
                 )
@@ -287,8 +294,10 @@ public class DiagnosticsRepository(
 
     private fun List<Int>.percentile(p: Int): Int {
         if (isEmpty()) return 0
-        val index = ((p / 100.0) * size).toInt().coerceIn(0, size - 1)
-        return this[index]
+        // Ближайший ранг, как в сводке режима наблюдения. Формула была скопирована вместе
+        // со сдвигом на ранг: p95 по сотне значений показывал 96-е по величине.
+        val rank = kotlin.math.ceil(p / 100.0 * size).toInt()
+        return this[(rank - 1).coerceIn(0, size - 1)]
     }
 
     private companion object {

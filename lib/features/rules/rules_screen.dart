@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/nope_call_api.g.dart';
 import '../../data/repository.dart';
 import '../../widgets/async_view.dart';
+import 'call_categories.dart';
 import 'rule_editor.dart';
 
 /// Список правил (ТЗ §9.4).
@@ -365,6 +366,11 @@ class _RuleTile extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
 
+  /// Сколько категорий перечислено в правиле. Для остальных целей — одна.
+  int get _categoryCount => rule.targetType == 'NAME_CATEGORY'
+      ? parseCategories(rule.pattern).length
+      : 1;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -400,8 +406,11 @@ class _RuleTile extends StatelessWidget {
         // остаются висеть в конце строки, а шаблон уезжает на следующую.
         // Шаблона может не быть вовсе: у правила «есть в контактах» сравнивать нечего,
         // и пустые кавычки «» читались как потерянное значение.
-        '${Labels.matchType(rule.matchType)}'
-        '${rule.pattern.isEmpty ? '' : ' «${rule.pattern}»'}'
+        //
+        // У правила по нескольким категориям шаблон в подпись не выносится: он совпадает
+        // с заголовком и обрезается на полуслове — «Начинается с «Гостиниц…» не говорит
+        // ничего. Число категорий говорит.
+        '${_categoryCount > 1 ? 'любая из $_categoryCount ${plural(_categoryCount, 'категории', 'категорий', 'категорий')}' : '${Labels.matchType(rule.matchType)}${rule.pattern.isEmpty ? '' : ' «${rule.pattern}»'}'}'
         '${rule.matchCount > 0 ? ' · сработало ${rule.matchCount}' : ''}',
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
