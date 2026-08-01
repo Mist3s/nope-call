@@ -5,6 +5,7 @@ import com.mist3s.nopecall.engine.MatchType
 import com.mist3s.nopecall.engine.PatternCheck
 import com.mist3s.nopecall.engine.RegexField
 import com.mist3s.nopecall.engine.RuleTarget
+import com.mist3s.nopecall.engine.translitVariantsByDefault
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -317,11 +318,14 @@ public class RulesTransfer(
 
     /**
      * Значение `translitVariants`, которое поставит [RulesRepository.save], если ключа в файле
-     * нет. Держится в паре с логикой `save`: расхождение проявилось бы не отказом, а тем, что
-     * восстановленное из копии правило ловит одно написание из двух (ТЗ §6.3.1).
+     * нет. Считается той же функцией движка, а не своей копией: расхождение проявилось бы
+     * не отказом, а тем, что восстановленное из копии правило ловит одно написание из двух.
      */
     private fun defaultTranslit(targetType: String): Boolean =
-        targetType == RuleTarget.NAME_ORG.name || targetType == RuleTarget.NAME.name
+        enumOfTarget(targetType)?.translitVariantsByDefault() ?: false
+
+    private fun enumOfTarget(name: String): RuleTarget? =
+        RuleTarget.entries.firstOrNull { it.name == name }
 
     private fun timestamp(): String =
         DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(Instant.ofEpochMilli(now()).atZone(zone))

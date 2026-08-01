@@ -153,11 +153,27 @@ class ObservationReportTest {
 
     @Test
     fun `перцентили задержки считаются по фактическим значениям`() {
+        // Метод «ближайший ранг»: p-й перцентиль сотни значений — это ровно p-е по величине.
+        // Раньше индекс округлялся вниз и результат сдвигался на ранг: p50 показывал 51-е,
+        // p95 — 96-е. Для показателя, по которому судят, укладывается ли решение в бюджет,
+        // сдвиг в сторону «хуже, чем есть» безвреден, но это всё равно неверное число.
         runBlocking { (1..100).forEach { event(latencyMs = it) } }
         val report = runBlocking { reporter().report() }
-        assertEquals(51, report.latencyP50)
-        assertEquals(96, report.latencyP95)
+        assertEquals(50, report.latencyP50)
+        assertEquals(95, report.latencyP95)
         assertEquals(100, report.latencyMax)
+    }
+
+    @Test
+    fun `перцентиль на двух значениях берёт большее`() {
+        // Крайний случай, на котором старая формула ошибалась заметнее всего: индекс 1 против 0.
+        runBlocking {
+            event(latencyMs = 10)
+            event(latencyMs = 20)
+        }
+        val report = runBlocking { reporter().report() }
+        assertEquals(10, report.latencyP50, "медиана двух значений — первое по ранку")
+        assertEquals(20, report.latencyP95)
     }
 
     @Test

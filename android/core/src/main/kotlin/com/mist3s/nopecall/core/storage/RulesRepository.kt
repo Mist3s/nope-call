@@ -12,6 +12,7 @@ import com.mist3s.nopecall.engine.RegexValidator
 import com.mist3s.nopecall.engine.Rule
 import com.mist3s.nopecall.engine.RuleSnapshot
 import com.mist3s.nopecall.engine.RuleTarget
+import com.mist3s.nopecall.engine.translitVariantsByDefault
 import com.mist3s.nopecall.engine.SnapshotBuilder
 
 /** Результат сохранения правила: либо оно сохранено, либо шаблон отвергнут с причиной. */
@@ -72,10 +73,9 @@ public class RulesRepository(
         if (check is PatternCheck.TooExpensive) return SaveResult.Rejected(check.reason)
         val ok = check as PatternCheck.Ok
 
-        // Для наименований варианты транслитерации включены по умолчанию: у одного юрлица
-        // наблюдались `Poleznyy` и `Polezniy`, и без вариантов правило поймало бы одно
-        // написание и пропустило второе (ТЗ §6.3.1).
-        val useVariants = translitVariants ?: (target == RuleTarget.NAME_ORG || target == RuleTarget.NAME)
+        // Умолчание — из движка, одной функцией на весь проект: копии этого условия
+        // уже расходились (ТЗ §6.3.1).
+        val useVariants = translitVariants ?: target.translitVariantsByDefault()
 
         val timestamp = now()
         val existing = id?.let { db.rules().byId(it) }
@@ -154,9 +154,9 @@ public class RulesRepository(
             return PatternCheck.Invalid("после нормализации шаблон пуст: в нём нет ни цифр, ни букв")
         }
 
-        val useVariants = target == RuleTarget.NAME_ORG || target == RuleTarget.NAME ||
-            target == RuleTarget.NAME_CATEGORY
-        val variants = if (useVariants) {
+        // Тем же условием, что и при сохранении: иначе редактор показывает написания,
+        // которых в снимке не будет, и правило ищет одно из них.
+        val variants = if (target.translitVariantsByDefault()) {
             NameCanonizer.variantsOf(canonical, limit = VARIANT_LIMIT)
         } else {
             emptyList()

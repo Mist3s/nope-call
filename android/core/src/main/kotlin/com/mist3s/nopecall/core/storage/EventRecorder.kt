@@ -104,6 +104,27 @@ public class EventSpool(private val dir: File) {
     private val file = File(dir, FILE_NAME)
 
     /**
+     * Файл, взятый в работу сливом. Существует только между [drain] и [clear].
+     *
+     * Нужен для идемпотентности: событие, пришедшее во время слива, дописывается в новый
+     * `pending_events.jsonl`, а `clear()` удаляет только то, что было прочитано. Раньше `clear()`
+     * удалял файл целиком — и такое событие исчезало, хотя запись делалась синхронно ровно
+     * ради того, чтобы не потеряться (архитектура §9.2).
+     */
+    private val draining = File(dir, DRAINING_NAME)
+
+    /**
+     * Файл счётчика отброшенного. Именно файл, а не поле в памяти: предел спула достигается
+     * тогда, когда Room долго недоступен, то есть в Direct Boot и через перезагрузки —
+     * счётчик в памяти показывал бы ноль ровно в том случае, ради которого он нужен.
+     */
+    private val droppedFile = File(dir, DROPPED_NAME)
+
+    /** Сколько записей отброшено по достижении предела (архитектура §9.2). */
+    public fun droppedCount(): Long =
+        runCatching { droppedFile.readText().trim().toLong() }.getOrDefault(0L)
+
+    /**
      * Дописывает строку синхронно. Стоимость — единицы сотен микросекунд.
      *
      * Не бросает: потеря записи хуже, чем её отсутствие, но обрушить процесс после ответа
@@ -112,6 +133,14 @@ public class EventSpool(private val dir: File) {
     public fun append(record: ScreeningRecord) {
         try {
             if (!dir.isDirectory) dir.mkdirs()
+            // Предел размера: без него спул растёт неограниченно, если Room долго недоступен
+            // (архитектура §9.2). Отбрасывается НОВОЕ, а не переписывается старое: перезапись
+            // файла в горячем пути после ответа стоит дороже, чем потеря одной записи,
+            // а отброшенное видно счётчиком.
+            if (file.length() >= MAX_BYTES) {
+                runCatching { droppedFile.writeText((droppedCount() + 1).toString()) }
+                return
+            }
             // Открываем и закрываем на каждую запись: держать дескриптор открытым между звонками
             // незачем — процесс всё равно умирает, а событий единицы в час.
             FileOutputStream(file, /* append = */ true).use { out ->
@@ -124,35 +153,56 @@ public class EventSpool(private val dir: File) {
         }
     }
 
-    /** Строки, ожидающие переноса в Room. Читается в фазе 2, после разблокировки. */
+    /**
+     * Строки, ожидающие переноса в Room. Читается в фазе 2, после разблокировки.
+     *
+     * Забирает файл переименованием, а не читает на месте: пока идёт перенос (открытие Room,
+     * вставки), может прийти звонок и дописать строку. С переименованием она попадает в новый
+     * файл и доживёт до следующего слива.
+     *
+     * Если `.draining` уже существует, значит предыдущий слив прервался — читается он, и его
+     * строки переносятся заново. Повторный перенос безопаснее потери: у записи есть монотонный
+     * идентификатор, а дубль виден в журнале, тогда как пропажу заметить нечем.
+     */
     public fun drain(): List<String> {
-        if (!file.isFile) return emptyList()
-        val lines = try {
-            file.readLines().filter { it.isNotBlank() }
-        } catch (_: Throwable) {
-            return emptyList()
+        if (!draining.isFile && file.isFile) {
+            // Отказ переименования не критичен: читаем на месте, как раньше.
+            runCatching { file.renameTo(draining) }
         }
-        return lines
+        val source = if (draining.isFile) draining else file
+        if (!source.isFile) return emptyList()
+        return try {
+            source.readLines().filter { it.isNotBlank() }
+        } catch (_: Throwable) {
+            emptyList()
+        }
     }
 
     /**
-     * Помечает перенесённое.
+     * Помечает перенесённое: удаляется только то, что [drain] взял в работу.
      *
-     * Идемпотентность обеспечивается переименованием: если перенос прервётся на середине,
-     * повторный слив прочитает тот же файл целиком, а не половину дважды (находка ревью Су26).
+     * Прерывание между [drain] и [clear] означает повторный перенос тех же строк, а не потерю
+     * пришедших в это время (архитектура §9.2).
      */
     public fun clear() {
         try {
-            file.delete()
+            if (draining.isFile) draining.delete() else file.delete()
         } catch (_: Throwable) {
             // не критично: следующий слив просто повторится
         }
     }
 
-    public fun sizeBytes(): Long = if (file.isFile) file.length() else 0L
+    public fun sizeBytes(): Long =
+        (if (file.isFile) file.length() else 0L) + (if (draining.isFile) draining.length() else 0L)
 
     public companion object {
         public const val FILE_NAME: String = "pending_events.jsonl"
+
+        /** Файл, взятый в работу сливом. Виден только между [drain] и [clear]. */
+        public const val DRAINING_NAME: String = "pending_events.draining.jsonl"
+
+        /** Счётчик отброшенных записей. Переживает перезагрузку, потому и файл. */
+        public const val DROPPED_NAME: String = "pending_events.dropped"
 
         /** Предел размера: без него спул растёт неограниченно, если Room долго недоступен. */
         public const val MAX_BYTES: Long = 2L * 1024 * 1024

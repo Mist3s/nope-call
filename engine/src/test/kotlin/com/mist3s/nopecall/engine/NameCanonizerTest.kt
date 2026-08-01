@@ -182,6 +182,28 @@ class NameCanonizerTest {
     }
 
     @Test
+    fun `класс «ый» сводит наблюдённые написания одного юрлица`() {
+        // Корпус: `OOO Poleznyy Zvonok` и `OOO Polezniy zvonok` — одна организация.
+        // Закрепляется явно, потому что следующая правка класса вариантов обязана
+        // сохранить именно это, а не «что-нибудь похожее».
+        val pattern = NameCanonizer.canonizePattern("Полезный")
+        val variants = Translit.variants(pattern).toSet()
+
+        assertTrue("poleznyy" in variants, "написание с yy: $variants")
+        assertTrue("polezniy" in variants, "написание с iy: $variants")
+    }
+
+    @Test
+    fun `шаблон не раскрывается в мусорные написания`() {
+        // «IT» раскрывалось в `yt` и ловило `BYTOVAYA TEHNIKA`: замена шла по всей строке,
+        // а односимвольные `y` и `i` стояли в одном классе. Расширение блокировки —
+        // то направление, в котором §1.1 требует осторожности.
+        val variants = Translit.variants(NameCanonizer.canonizePattern("IT")).toSet()
+
+        assertEquals(setOf("it"), variants, "у двухбуквенного шаблона вариантов быть не должно")
+    }
+
+    @Test
     fun `пустое и отсутствующее название`() {
         assertEquals(NameForms.NONE, NameCanonizer.canonize(null))
         assertEquals(NameForms.NONE, NameCanonizer.canonize("   "))

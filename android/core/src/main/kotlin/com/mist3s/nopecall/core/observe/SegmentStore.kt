@@ -59,7 +59,10 @@ internal class SegmentStore(
         val current = currentFile()
         rotateIfNeeded(current, limits)
         val target = currentFile()
-        if (enforce(limits, incomingBytes = line.length.toLong())) {
+        // Байты, а не символы: файл в UTF-8, и кириллическая строка занимает вдвое больше.
+        // Плюс перевод строки, который дописывается ниже.
+        val bytes = line.toByteArray().size.toLong() + 1
+        if (enforce(limits, incomingBytes = bytes)) {
             FileOutputStream(target, /* append = */ true).use { out ->
                 out.write((line + "\n").toByteArray())
                 // fsync нет сознательно: строка уже в кэше страниц и переживёт смерть процесса,
@@ -161,7 +164,16 @@ internal class SegmentStore(
      * @return `false`, если писать нельзя даже после удаления всего лишнего
      */
     private fun enforce(limits: Limits, incomingBytes: Long): Boolean {
-        val hardCap = minOf(limits.maxBytes, freeSpace() / FREE_SPACE_DIVISOR)
+        // «Лимит не задан» и «места нет» — разные вещи, и раньше они совпадали в одном
+        // `hardCap <= 0`, из-за чего на полном диске запись РАЗРЕШАЛАСЬ. Теперь порог считается
+        // явно: настройка ≤ 0 означает «без ограничения», а свободное место ограничивает всегда.
+        val byConfig = if (limits.maxBytes > 0) limits.maxBytes else Long.MAX_VALUE
+        val hardCap = minOf(byConfig, freeSpace() / FREE_SPACE_DIVISOR)
+
+        // Строка не влезает даже в пустой каталог — выходим ДО удаления чего бы то ни было.
+        // Иначе предохранитель стирал архив и всё равно не писал: худший из возможных исходов.
+        if (incomingBytes > hardCap) return false
+
         val cutoff = now() - limits.maxAgeDays.toLong() * DAY_MS
 
         var segments = segments()
@@ -186,7 +198,7 @@ internal class SegmentStore(
             runCatching { victim.file.delete() }
             index++
         }
-        return total + incomingBytes <= hardCap || hardCap <= 0
+        return total + incomingBytes <= hardCap
     }
 
     /** `calls-2026-07-31.jsonl.gz` и `calls-2026-07-31-2.jsonl.gz` → начало 31 июля. */

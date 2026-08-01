@@ -104,8 +104,20 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
     _debounce = Timer(const Duration(milliseconds: 250), _revalidate);
   }
 
+  /// Счётчик поколений: устаревший ответ обязан быть отброшен, а не показан.
+  ///
+  /// Два `await` подряд без него давали гонку: при быстром наборе ответ по короткому шаблону
+  /// приходил позже, чем по длинному, и «зацепит N контактов» показывало число от другого
+  /// шаблона. Для приложения, которое борется за правдивость показателей, это существенно.
+  int _generation = 0;
+
   Future<void> _revalidate() async {
+    final generation = ++_generation;
+    // Цель и тип сравнения тоже захватываются: пользователь может сменить их, пока идёт ответ.
     final pattern = _patternController.text;
+    final target = _target;
+    final matchType = _matchType;
+
     if (pattern.isEmpty) {
       setState(() {
         _check = null;
@@ -113,24 +125,25 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
       });
       return;
     }
-    final check = await _repo.checkPattern(_target, _matchType, pattern);
-    if (!mounted) return;
+
+    final check = await _repo.checkPattern(target, matchType, pattern);
+    if (!mounted || generation != _generation) return;
     setState(() {
       _check = check;
     });
 
-    if (check.valid) {
-      final preview = await _repo.preview(_target, _matchType, pattern);
-      if (mounted) {
-        setState(() {
-          _preview = preview;
-        });
-      }
-    } else {
+    if (!check.valid) {
       setState(() {
         _preview = null;
       });
+      return;
     }
+
+    final preview = await _repo.preview(target, matchType, pattern);
+    if (!mounted || generation != _generation) return;
+    setState(() {
+      _preview = preview;
+    });
   }
 
   List<String> get _matchTypesForTarget {
@@ -195,6 +208,9 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
                   _matchType = _matchTypesForTarget.first;
                 }
               });
+              // Отложенный пересчёт по вводу отменяется: иначе он выстрелит по старой цели
+              // и перепишет только что полученный результат.
+              _debounce?.cancel();
               _revalidate();
             },
           ),
@@ -209,6 +225,7 @@ class _RuleEditorScreenState extends State<RuleEditorScreen> {
               setState(() {
                 _matchType = v;
               });
+              _debounce?.cancel();
               _revalidate();
             },
           ),

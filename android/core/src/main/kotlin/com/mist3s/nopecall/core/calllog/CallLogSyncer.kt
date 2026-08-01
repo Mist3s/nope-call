@@ -126,17 +126,33 @@ public class CallLogSyncer(
         // Сшиваем только свежие события: у старых запись зеркала либо уже нашлась, либо
         // не появится никогда, и перебирать их на каждой синхронизации незачем.
         for (event in db.events().recent(STITCH_WINDOW)) {
-            if (event.matchedSystemId != null) continue
             if (event.digits.isEmpty()) continue // скрытый номер сшивать нечем (ТЗ §7.3)
 
-            val match = db.mirror().findForStitching(
-                digits = event.digits,
-                occurredAt = event.occurredAt,
-                windowMs = STITCH_WINDOW_MS,
-            ) ?: continue
+            // Уже сшитое событие пропускать нельзя, если у него до сих пор нет названия.
+            //
+            // Ровно ради этого случая существует перекрытие окна в сутки: запись зеркала могла
+            // найтись тогда, когда `CACHED_NAME` был ещё пуст, а имя система дописала позже.
+            // Раньше такое событие в цикл больше не попадало никогда — и показатель «название
+            // дописано позже» систематически недосчитывал, а в ленте строка получала имя
+            // из зеркала при `nameSource = 'NONE'`, то есть «названия не было» рядом
+            // с показанным названием (архитектура §7.1).
+            val alreadyStitched = event.matchedSystemId != null
+            if (alreadyStitched && !event.nameRaw.isNullOrEmpty()) continue
 
-            db.events().attachSystemId(event.id, match.systemId)
-            stitched++
+            val match = if (alreadyStitched) {
+                db.mirror().bySystemId(event.matchedSystemId!!)
+            } else {
+                db.mirror().findForStitching(
+                    digits = event.digits,
+                    occurredAt = event.occurredAt,
+                    windowMs = STITCH_WINDOW_MS,
+                )
+            } ?: continue
+
+            if (!alreadyStitched) {
+                db.events().attachSystemId(event.id, match.systemId)
+                stitched++
+            }
 
             // Название, ставшее известным позже. Дописывается только если своего не было:
             // операторская подпись, полученная в момент проверки, ценнее системного имени.

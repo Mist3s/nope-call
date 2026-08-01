@@ -34,6 +34,9 @@ class PlatformRepository {
   Future<bool> requestPermissions() => _status.requestPermissions();
   void openAppSettings() => _status.openAppSettings();
 
+  /// Системные настройки уведомлений: звук и важность канала приложение менять не может.
+  void openNotificationSettings() => _status.openNotificationSettings();
+
   Future<List<RuleDto>> rules() => _rules.list();
 
   Future<SaveRuleResult> saveRule({
@@ -108,7 +111,7 @@ class PlatformRepository {
 
   Future<SummaryDto> summary() => _journal.summary();
 
-  Future<List<String>> journalSims() => _journal.sims();
+  Future<List<SimDto>> journalSims() => _journal.sims();
   Future<void> hideJournalRecord(int systemId) => _journal.hide(systemId);
   Future<int> clearJournal() => _journal.clear();
   Future<SyncResultDto> syncCallLog() => _journal.syncCallLog();
@@ -214,8 +217,14 @@ abstract final class Labels {
     'EMERGENCY': 'экстренный номер',
     'RESTRICTED_NUMBER': 'скрытый номер',
     'UNKNOWN_NUMBER': 'номер не определён',
+    'SHORT_NUMBER': 'короткий номер — блокируется только точным правилом',
+    'OUTGOING_CALL': 'исходящий звонок — приложение его не проверяет',
     'ENGINE_BUDGET_EXCEEDED': 'не успели проверить — звонок пропущен',
     'SNAPSHOT_UNAVAILABLE': 'правила недоступны — звонок пропущен',
+    // Раздельные причины: «не разобрали данные звонка» и «сбой проверки» ведут при разборе
+    // жалобы в разные места, а раньше и то и другое выглядело как «правила недоступны».
+    'FACTS_FAILED': 'не разобрали данные звонка — звонок пропущен',
+    'ENGINE_FAILED': 'сбой проверки — звонок пропущен',
     'WATCHDOG_ANSWERED': 'не успели проверить — звонок пропущен',
   };
 

@@ -230,6 +230,23 @@ class JournalPageDto {
   JournalCursorDto? next;
 }
 
+/// SIM, встречавшаяся в журнале (ТЗ §7.4).
+///
+/// [id] — то, что отдал Telecom (`phoneAccountId`); на большинстве прошивок это серийный номер
+/// карты. Фильтр сравнивает по нему. [label] — то, что видит пользователь: «МТС · SIM 1», либо
+/// «Карта …6644», если имя оператора недоступно. Раньше в списке стоял сам [id], и выбрать
+/// нужную карту по серийному номеру было невозможно.
+class SimDto {
+  SimDto({required this.id, required this.label, required this.nameKnown});
+
+  String id;
+  String label;
+
+  /// Настоящее ли это имя. `false` — показана короткая форма, и интерфейс обязан сказать,
+  /// какого разрешения не хватает, а не делать вид, что так и надо.
+  bool nameKnown;
+}
+
 class SummaryDto {
   SummaryDto({
     required this.blockedToday,
@@ -371,6 +388,13 @@ abstract class StatusApi {
   bool requestPermissions();
 
   void openAppSettings();
+
+  /// Системные настройки уведомлений приложения.
+  ///
+  /// Звук, важность и способ показа — свойства канала, и после его создания приложение
+  /// их менять не может: этим управляет система. Поэтому здесь именно переход, а не
+  /// собственные переключатели, которые делали бы вид, что настраивают.
+  void openNotificationSettings();
 }
 
 @HostApi()
@@ -436,7 +460,7 @@ abstract class JournalApi {
 
   /// Какие SIM встречались в журнале. Пусто — фильтр по SIM показывать незачем.
   @async
-  List<String> sims();
+  List<SimDto> sims();
 
   /// Скрыть запись локально. Системный журнал Android при этом не трогается (ТЗ §7.2).
   @async
@@ -650,6 +674,7 @@ class DiagnosticsDto {
     required this.signatureLooksUnavailable,
     required this.device,
     required this.reportText,
+    required this.droppedPendingEvents,
     this.snapshotFormatVersion,
     this.snapshotCanonVersion,
     this.snapshotRuleCount,
@@ -657,6 +682,10 @@ class DiagnosticsDto {
     this.snapshotError,
     this.batteryUnrestricted,
   });
+
+  /// Записей события, отброшенных по достижении предела очереди Direct Boot (§9.2).
+  /// Показывается всегда: «0» здесь — это утверждение «ничего не потеряно».
+  int droppedPendingEvents;
 
   int checksLast7Days;
   int latencyP50;

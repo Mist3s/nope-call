@@ -776,6 +776,64 @@ data class JournalPageDto (
   }
 }
 
+/**
+ * SIM, встречавшаяся в журнале (ТЗ §7.4).
+ *
+ * [id] — то, что отдал Telecom (`phoneAccountId`); на большинстве прошивок это серийный номер
+ * карты. Фильтр сравнивает по нему. [label] — то, что видит пользователь: «МТС · SIM 1», либо
+ * «Карта …6644», если имя оператора недоступно. Раньше в списке стоял сам [id], и выбрать
+ * нужную карту по серийному номеру было невозможно.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class SimDto (
+  val id: String,
+  val label: String,
+  /**
+   * Настоящее ли это имя. `false` — показана короткая форма, и интерфейс обязан сказать,
+   * какого разрешения не хватает, а не делать вид, что так и надо.
+   */
+  val nameKnown: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): SimDto {
+      val id = pigeonVar_list[0] as String
+      val label = pigeonVar_list[1] as String
+      val nameKnown = pigeonVar_list[2] as Boolean
+      return SimDto(id, label, nameKnown)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      id,
+      label,
+      nameKnown,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as SimDto
+    return NopeCallApiPigeonUtils.deepEquals(this.id, other.id) && NopeCallApiPigeonUtils.deepEquals(this.label, other.label) && NopeCallApiPigeonUtils.deepEquals(this.nameKnown, other.nameKnown)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.id)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.label)
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.nameKnown)
+    return result
+  }
+  override fun toString(): String {
+    return "SimDto(id=$id, label=$label, nameKnown=$nameKnown)"
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class SummaryDto (
   val blockedToday: Long,
@@ -1473,6 +1531,11 @@ data class ExportEstimateDto (
  * Generated class from Pigeon that represents data sent in messages.
  */
 data class DiagnosticsDto (
+  /**
+   * Записей события, отброшенных по достижении предела очереди Direct Boot (§9.2).
+   * Показывается всегда: «0» здесь — это утверждение «ничего не потеряно».
+   */
+  val droppedPendingEvents: Long,
   val checksLast7Days: Long,
   val latencyP50: Long,
   val latencyP95: Long,
@@ -1503,31 +1566,33 @@ data class DiagnosticsDto (
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): DiagnosticsDto {
-      val checksLast7Days = pigeonVar_list[0] as Long
-      val latencyP50 = pigeonVar_list[1] as Long
-      val latencyP95 = pigeonVar_list[2] as Long
-      val latencyMax = pigeonVar_list[3] as Long
-      val degradedCounts = pigeonVar_list[4] as List<BucketDto>
-      val ruleErrors = pigeonVar_list[5] as List<RuleErrorDto>
-      val lastEvents = pigeonVar_list[6] as List<EventLineDto>
-      val nameSources = pigeonVar_list[7] as List<BucketDto>
-      val withSignatureLast100 = pigeonVar_list[8] as Long
-      val checkedLast100 = pigeonVar_list[9] as Long
-      val volte = pigeonVar_list[10] as List<BucketDto>
-      val signatureLooksUnavailable = pigeonVar_list[11] as Boolean
-      val device = pigeonVar_list[12] as String
-      val reportText = pigeonVar_list[13] as String
-      val snapshotFormatVersion = pigeonVar_list[14] as Long?
-      val snapshotCanonVersion = pigeonVar_list[15] as Long?
-      val snapshotRuleCount = pigeonVar_list[16] as Long?
-      val snapshotBuiltAt = pigeonVar_list[17] as Long?
-      val snapshotError = pigeonVar_list[18] as String?
-      val batteryUnrestricted = pigeonVar_list[19] as Boolean?
-      return DiagnosticsDto(checksLast7Days, latencyP50, latencyP95, latencyMax, degradedCounts, ruleErrors, lastEvents, nameSources, withSignatureLast100, checkedLast100, volte, signatureLooksUnavailable, device, reportText, snapshotFormatVersion, snapshotCanonVersion, snapshotRuleCount, snapshotBuiltAt, snapshotError, batteryUnrestricted)
+      val droppedPendingEvents = pigeonVar_list[0] as Long
+      val checksLast7Days = pigeonVar_list[1] as Long
+      val latencyP50 = pigeonVar_list[2] as Long
+      val latencyP95 = pigeonVar_list[3] as Long
+      val latencyMax = pigeonVar_list[4] as Long
+      val degradedCounts = pigeonVar_list[5] as List<BucketDto>
+      val ruleErrors = pigeonVar_list[6] as List<RuleErrorDto>
+      val lastEvents = pigeonVar_list[7] as List<EventLineDto>
+      val nameSources = pigeonVar_list[8] as List<BucketDto>
+      val withSignatureLast100 = pigeonVar_list[9] as Long
+      val checkedLast100 = pigeonVar_list[10] as Long
+      val volte = pigeonVar_list[11] as List<BucketDto>
+      val signatureLooksUnavailable = pigeonVar_list[12] as Boolean
+      val device = pigeonVar_list[13] as String
+      val reportText = pigeonVar_list[14] as String
+      val snapshotFormatVersion = pigeonVar_list[15] as Long?
+      val snapshotCanonVersion = pigeonVar_list[16] as Long?
+      val snapshotRuleCount = pigeonVar_list[17] as Long?
+      val snapshotBuiltAt = pigeonVar_list[18] as Long?
+      val snapshotError = pigeonVar_list[19] as String?
+      val batteryUnrestricted = pigeonVar_list[20] as Boolean?
+      return DiagnosticsDto(droppedPendingEvents, checksLast7Days, latencyP50, latencyP95, latencyMax, degradedCounts, ruleErrors, lastEvents, nameSources, withSignatureLast100, checkedLast100, volte, signatureLooksUnavailable, device, reportText, snapshotFormatVersion, snapshotCanonVersion, snapshotRuleCount, snapshotBuiltAt, snapshotError, batteryUnrestricted)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
+      droppedPendingEvents,
       checksLast7Days,
       latencyP50,
       latencyP95,
@@ -1558,11 +1623,12 @@ data class DiagnosticsDto (
       return true
     }
     val other = other as DiagnosticsDto
-    return NopeCallApiPigeonUtils.deepEquals(this.checksLast7Days, other.checksLast7Days) && NopeCallApiPigeonUtils.deepEquals(this.latencyP50, other.latencyP50) && NopeCallApiPigeonUtils.deepEquals(this.latencyP95, other.latencyP95) && NopeCallApiPigeonUtils.deepEquals(this.latencyMax, other.latencyMax) && NopeCallApiPigeonUtils.deepEquals(this.degradedCounts, other.degradedCounts) && NopeCallApiPigeonUtils.deepEquals(this.ruleErrors, other.ruleErrors) && NopeCallApiPigeonUtils.deepEquals(this.lastEvents, other.lastEvents) && NopeCallApiPigeonUtils.deepEquals(this.nameSources, other.nameSources) && NopeCallApiPigeonUtils.deepEquals(this.withSignatureLast100, other.withSignatureLast100) && NopeCallApiPigeonUtils.deepEquals(this.checkedLast100, other.checkedLast100) && NopeCallApiPigeonUtils.deepEquals(this.volte, other.volte) && NopeCallApiPigeonUtils.deepEquals(this.signatureLooksUnavailable, other.signatureLooksUnavailable) && NopeCallApiPigeonUtils.deepEquals(this.device, other.device) && NopeCallApiPigeonUtils.deepEquals(this.reportText, other.reportText) && NopeCallApiPigeonUtils.deepEquals(this.snapshotFormatVersion, other.snapshotFormatVersion) && NopeCallApiPigeonUtils.deepEquals(this.snapshotCanonVersion, other.snapshotCanonVersion) && NopeCallApiPigeonUtils.deepEquals(this.snapshotRuleCount, other.snapshotRuleCount) && NopeCallApiPigeonUtils.deepEquals(this.snapshotBuiltAt, other.snapshotBuiltAt) && NopeCallApiPigeonUtils.deepEquals(this.snapshotError, other.snapshotError) && NopeCallApiPigeonUtils.deepEquals(this.batteryUnrestricted, other.batteryUnrestricted)
+    return NopeCallApiPigeonUtils.deepEquals(this.droppedPendingEvents, other.droppedPendingEvents) && NopeCallApiPigeonUtils.deepEquals(this.checksLast7Days, other.checksLast7Days) && NopeCallApiPigeonUtils.deepEquals(this.latencyP50, other.latencyP50) && NopeCallApiPigeonUtils.deepEquals(this.latencyP95, other.latencyP95) && NopeCallApiPigeonUtils.deepEquals(this.latencyMax, other.latencyMax) && NopeCallApiPigeonUtils.deepEquals(this.degradedCounts, other.degradedCounts) && NopeCallApiPigeonUtils.deepEquals(this.ruleErrors, other.ruleErrors) && NopeCallApiPigeonUtils.deepEquals(this.lastEvents, other.lastEvents) && NopeCallApiPigeonUtils.deepEquals(this.nameSources, other.nameSources) && NopeCallApiPigeonUtils.deepEquals(this.withSignatureLast100, other.withSignatureLast100) && NopeCallApiPigeonUtils.deepEquals(this.checkedLast100, other.checkedLast100) && NopeCallApiPigeonUtils.deepEquals(this.volte, other.volte) && NopeCallApiPigeonUtils.deepEquals(this.signatureLooksUnavailable, other.signatureLooksUnavailable) && NopeCallApiPigeonUtils.deepEquals(this.device, other.device) && NopeCallApiPigeonUtils.deepEquals(this.reportText, other.reportText) && NopeCallApiPigeonUtils.deepEquals(this.snapshotFormatVersion, other.snapshotFormatVersion) && NopeCallApiPigeonUtils.deepEquals(this.snapshotCanonVersion, other.snapshotCanonVersion) && NopeCallApiPigeonUtils.deepEquals(this.snapshotRuleCount, other.snapshotRuleCount) && NopeCallApiPigeonUtils.deepEquals(this.snapshotBuiltAt, other.snapshotBuiltAt) && NopeCallApiPigeonUtils.deepEquals(this.snapshotError, other.snapshotError) && NopeCallApiPigeonUtils.deepEquals(this.batteryUnrestricted, other.batteryUnrestricted)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
+    result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.droppedPendingEvents)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.checksLast7Days)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyP50)
     result = 31 * result + NopeCallApiPigeonUtils.deepHash(this.latencyP95)
@@ -1586,7 +1652,7 @@ data class DiagnosticsDto (
     return result
   }
   override fun toString(): String {
-    return "DiagnosticsDto(checksLast7Days=$checksLast7Days, latencyP50=$latencyP50, latencyP95=$latencyP95, latencyMax=$latencyMax, degradedCounts=$degradedCounts, ruleErrors=$ruleErrors, lastEvents=$lastEvents, nameSources=$nameSources, withSignatureLast100=$withSignatureLast100, checkedLast100=$checkedLast100, volte=$volte, signatureLooksUnavailable=$signatureLooksUnavailable, device=$device, reportText=$reportText, snapshotFormatVersion=$snapshotFormatVersion, snapshotCanonVersion=$snapshotCanonVersion, snapshotRuleCount=$snapshotRuleCount, snapshotBuiltAt=$snapshotBuiltAt, snapshotError=$snapshotError, batteryUnrestricted=$batteryUnrestricted)"
+    return "DiagnosticsDto(droppedPendingEvents=$droppedPendingEvents, checksLast7Days=$checksLast7Days, latencyP50=$latencyP50, latencyP95=$latencyP95, latencyMax=$latencyMax, degradedCounts=$degradedCounts, ruleErrors=$ruleErrors, lastEvents=$lastEvents, nameSources=$nameSources, withSignatureLast100=$withSignatureLast100, checkedLast100=$checkedLast100, volte=$volte, signatureLooksUnavailable=$signatureLooksUnavailable, device=$device, reportText=$reportText, snapshotFormatVersion=$snapshotFormatVersion, snapshotCanonVersion=$snapshotCanonVersion, snapshotRuleCount=$snapshotRuleCount, snapshotBuiltAt=$snapshotBuiltAt, snapshotError=$snapshotError, batteryUnrestricted=$batteryUnrestricted)"
   }
 }
 
@@ -1895,75 +1961,80 @@ private open class NopeCallApiPigeonCodec : StandardMessageCodec() {
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          SummaryDto.fromList(it)
+          SimDto.fromList(it)
         }
       }
       138.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          SyncResultDto.fromList(it)
+          SummaryDto.fromList(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PreviewDto.fromList(it)
+          SyncResultDto.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ImportReportDto.fromList(it)
+          PreviewDto.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          UpdateStatusDto.fromList(it)
+          ImportReportDto.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ObservationStatusDto.fromList(it)
+          UpdateStatusDto.fromList(it)
         }
       }
       143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          BucketDto.fromList(it)
+          ObservationStatusDto.fromList(it)
         }
       }
       144.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          SignatureDto.fromList(it)
+          BucketDto.fromList(it)
         }
       }
       145.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ObservationReportDto.fromList(it)
+          SignatureDto.fromList(it)
         }
       }
       146.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ExportEstimateDto.fromList(it)
+          ObservationReportDto.fromList(it)
         }
       }
       147.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          DiagnosticsDto.fromList(it)
+          ExportEstimateDto.fromList(it)
         }
       }
       148.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          RuleErrorDto.fromList(it)
+          DiagnosticsDto.fromList(it)
         }
       }
       149.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          EventLineDto.fromList(it)
+          RuleErrorDto.fromList(it)
         }
       }
       150.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          TraceStepDto.fromList(it)
+          EventLineDto.fromList(it)
         }
       }
       151.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          TraceStepDto.fromList(it)
+        }
+      }
+      152.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           TestRunDto.fromList(it)
         }
@@ -2005,64 +2076,68 @@ private open class NopeCallApiPigeonCodec : StandardMessageCodec() {
         stream.write(136)
         writeValue(stream, value.toList())
       }
-      is SummaryDto -> {
+      is SimDto -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is SyncResultDto -> {
+      is SummaryDto -> {
         stream.write(138)
         writeValue(stream, value.toList())
       }
-      is PreviewDto -> {
+      is SyncResultDto -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is ImportReportDto -> {
+      is PreviewDto -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is UpdateStatusDto -> {
+      is ImportReportDto -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is ObservationStatusDto -> {
+      is UpdateStatusDto -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is BucketDto -> {
+      is ObservationStatusDto -> {
         stream.write(143)
         writeValue(stream, value.toList())
       }
-      is SignatureDto -> {
+      is BucketDto -> {
         stream.write(144)
         writeValue(stream, value.toList())
       }
-      is ObservationReportDto -> {
+      is SignatureDto -> {
         stream.write(145)
         writeValue(stream, value.toList())
       }
-      is ExportEstimateDto -> {
+      is ObservationReportDto -> {
         stream.write(146)
         writeValue(stream, value.toList())
       }
-      is DiagnosticsDto -> {
+      is ExportEstimateDto -> {
         stream.write(147)
         writeValue(stream, value.toList())
       }
-      is RuleErrorDto -> {
+      is DiagnosticsDto -> {
         stream.write(148)
         writeValue(stream, value.toList())
       }
-      is EventLineDto -> {
+      is RuleErrorDto -> {
         stream.write(149)
         writeValue(stream, value.toList())
       }
-      is TraceStepDto -> {
+      is EventLineDto -> {
         stream.write(150)
         writeValue(stream, value.toList())
       }
-      is TestRunDto -> {
+      is TraceStepDto -> {
         stream.write(151)
+        writeValue(stream, value.toList())
+      }
+      is TestRunDto -> {
+        stream.write(152)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -2084,6 +2159,14 @@ interface StatusApi {
    */
   fun requestPermissions(callback: (Result<Boolean>) -> Unit)
   fun openAppSettings()
+  /**
+   * Системные настройки уведомлений приложения.
+   *
+   * Звук, важность и способ показа — свойства канала, и после его создания приложение
+   * их менять не может: этим управляет система. Поэтому здесь именно переход, а не
+   * собственные переключатели, которые делали бы вид, что настраивают.
+   */
+  fun openNotificationSettings()
 
   companion object {
     /** The codec used by StatusApi. */
@@ -2151,6 +2234,22 @@ interface StatusApi {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               api.openAppSettings()
+              listOf(null)
+            } catch (exception: Throwable) {
+              NopeCallApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.StatusApi.openNotificationSettings$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.openNotificationSettings()
               listOf(null)
             } catch (exception: Throwable) {
               NopeCallApiPigeonUtils.wrapError(exception)
@@ -2386,7 +2485,7 @@ interface JournalApi {
   fun page(filter: JournalFilterDto, cursor: JournalCursorDto?, limit: Long, callback: (Result<JournalPageDto>) -> Unit)
   fun summary(callback: (Result<SummaryDto>) -> Unit)
   /** Какие SIM встречались в журнале. Пусто — фильтр по SIM показывать незачем. */
-  fun sims(callback: (Result<List<String>>) -> Unit)
+  fun sims(callback: (Result<List<SimDto>>) -> Unit)
   /** Скрыть запись локально. Системный журнал Android при этом не трогается (ТЗ §7.2). */
   fun hide(systemId: Long, callback: (Result<Unit>) -> Unit)
   /** Очистить журнал приложения. Системный журнал Android не затрагивается (ТЗ §7.6). */
@@ -2455,7 +2554,7 @@ interface JournalApi {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.nope_call.JournalApi.sims$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            api.sims{ result: Result<List<String>> ->
+            api.sims{ result: Result<List<SimDto>> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(NopeCallApiPigeonUtils.wrapError(error))

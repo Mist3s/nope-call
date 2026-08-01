@@ -16,7 +16,7 @@ class JournalFilterSheet extends StatefulWidget {
   });
 
   final JournalFilterDto filter;
-  final List<String> sims;
+  final List<SimDto> sims;
 
   @override
   State<JournalFilterSheet> createState() => _JournalFilterSheetState();
@@ -90,6 +90,7 @@ class _JournalFilterSheetState extends State<JournalFilterSheet> {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
@@ -202,20 +203,37 @@ class _JournalFilterSheetState extends State<JournalFilterSheet> {
                 initialValue: _sim,
                 isExpanded: true,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
-                // Метка SIM приходит от системы как `phoneAccountId` и короткой быть
-                // не обязана: на части прошивок это длинный идентификатор.
+                // Сравнение идёт по `id` (это `phoneAccountId` из журнала), а показывается
+                // метка: на большинстве прошивок `id` — серийный номер карты, и выбрать
+                // по нему нужную SIM невозможно.
                 selectedItemBuilder: (context) => [
                   const Text('Любая', maxLines: 1),
                   for (final sim in widget.sims)
-                    Text(sim, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(
+                      sim.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                 ],
                 items: [
                   const DropdownMenuItem(value: null, child: Text('Любая')),
                   for (final sim in widget.sims)
-                    DropdownMenuItem(value: sim, child: Text(sim)),
+                    DropdownMenuItem(value: sim.id, child: Text(sim.label)),
                 ],
                 onChanged: (value) => setState(() => _sim = value),
               ),
+              // Без разрешения «Телефон» имя оператора недоступно, и показывается короткая
+              // форма. Сказать об этом честнее, чем выдать её за название карты.
+              if (widget.sims.any((s) => !s.nameKnown)) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Названия карт (оператор и номер слота) требуют разрешения «Телефон». '
+                  'Без него показаны последние цифры серийного номера.',
+                  style: text.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ],
 
             const SizedBox(height: 24),

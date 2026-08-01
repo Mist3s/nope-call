@@ -29,6 +29,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
+    // `_load` вызывается не только из `initState`, но и после `await` — из обновления
+    // и из применения настройки. Ведущий `setState` без этой проверки бросал бы ассертом
+    // на экране, который пользователь успел закрыть.
+    if (!mounted) return;
     setState(() => _state = Loadable(data: _state.data, loading: true));
     try {
       final settings = await _repo.settings();
@@ -65,6 +69,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final defaultAction = settings['default_action'] ?? 'ALLOW';
           final restricted = settings['restricted_action'] ?? 'ALLOW';
           final unknown = settings['unknown_action'] ?? 'ALLOW';
+          // По умолчанию включено: для тихого сброса и режима «без звука» уведомление —
+          // единственный способ узнать, что звонок вообще был.
+          final notifyBlocked = settings['notify_blocked'] != 'false';
+          final notifyRoleLost = settings['notify_role_lost'] != 'false';
 
           return ListView(
             children: [
@@ -99,6 +107,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'Система не смогла определить номер',
                 value: unknown,
                 onChanged: (v) => _put('unknown_action', v),
+              ),
+              const Divider(),
+              const _SectionTitle('Уведомления'),
+              SwitchListTile(
+                value: notifyBlocked,
+                onChanged: (v) => _put('notify_blocked', v.toString()),
+                title: const Text('О заблокированных звонках'),
+                subtitle: const Text(
+                  'При тихом сбросе и режиме «без звука» это единственный способ узнать, '
+                  'что звонок был. В уведомлении видно, кто звонил и какое правило сработало',
+                ),
+              ),
+              SwitchListTile(
+                value: notifyRoleLost,
+                onChanged: (v) => _put('notify_role_lost', v.toString()),
+                title: const Text('Если блокировка отключилась'),
+                subtitle: Text(
+                  notifyRoleLost
+                      ? 'Систему могут переключить на другое приложение — без уведомления '
+                            'вы узнаете об этом от пропущенного спама'
+                      : 'Внимание: приложение перестанет предупреждать, что роль отозвана '
+                            'и звонки больше не проверяются',
+                ),
+              ),
+              ListTile(
+                title: const Text('Звук и способ показа'),
+                subtitle: const Text(
+                  'Настраивается в системе: Android не даёт приложению менять звук канала '
+                  'после его создания. По умолчанию уведомление о блокировке беззвучное',
+                ),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: _repo.openNotificationSettings,
               ),
               const Divider(),
               // Один заголовок на три экрана: у каждого своё содержимое, свои сроки хранения

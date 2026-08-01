@@ -31,6 +31,10 @@ class _JournalSettingsScreenState extends State<JournalSettingsScreen> {
   }
 
   Future<void> _load() async {
+    // `_load` вызывается не только из `initState`, но и после `await` — из обновления
+    // и из применения настройки. Ведущий `setState` без этой проверки бросал бы ассертом
+    // на экране, который пользователь успел закрыть.
+    if (!mounted) return;
     setState(() => _state = Loadable(data: _state.data, loading: true));
     try {
       final settings = await _repo.settings();

@@ -33,10 +33,9 @@ internal class LockedBootReceiver : BroadcastReceiver() {
 internal class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "получено ${intent.action}")
+        // Пересборка снимка и перепроверка роли делаются внутри `initUnlocked` — для обоих
+        // событий одинаково, поэтому отдельной ветки под `MY_PACKAGE_REPLACED` здесь нет.
         (context.applicationContext as? NopeCallApp)?.initUnlocked()
-        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            // TODO(этап 1): приоритетная пересборка снимка + перепроверка роли (архитектура §5.2, §10).
-        }
     }
 
     private companion object {

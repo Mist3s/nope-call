@@ -293,6 +293,51 @@ class CallLogSyncerTest {
     }
 
     @Test
+    fun `имя, появившееся после сшивки, всё равно дописывается`() {
+        // Ради этого случая и существует перекрытие окна в сутки: запись зеркала нашлась,
+        // когда CACHED_NAME был пуст, а имя система дописала позже. Раньше сшитое событие
+        // в цикл больше не попадало, и название до него не доходило никогда.
+        runBlocking { db.events().insert(event(occurredAt = NOW - 60_000)) }
+        val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = null)))
+        val syncer = syncer(source, contacts = ContactMembership { true })
+
+        val first = runBlocking { syncer.sync() }
+        assertEquals(1, first.stitched)
+        assertEquals(0, first.lateNames, "названия в зеркале пока нет")
+
+        // Система дописала имя в ту же запись.
+        source.rows = listOf(row(1, date = NOW - 60_000, name = "Мама"))
+        val second = runBlocking { syncer.sync() }
+
+        assertEquals(0, second.stitched, "заново сшивать нечего")
+        assertEquals(1, second.lateNames, "а название обязано дойти")
+
+        val saved = runBlocking { db.events().recent(10) }.single()
+        assertEquals("Мама", saved.nameRaw)
+        assertEquals(true, saved.nameLate)
+        assertEquals(1, runBlocking { db.events().lateNamesSince(0) })
+    }
+
+    @Test
+    fun `сшитое событие с названием повторно не трогается`() {
+        // Обратная сторона: событие со своим названием обязано выходить из цикла сразу,
+        // иначе каждая синхронизация перебирала бы двести событий с запросом на каждое.
+        runBlocking {
+            db.events().insert(event(occurredAt = NOW - 60_000, nameRaw = "OOO Romashka: reklama"))
+        }
+        val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = "Другое имя")))
+        val syncer = syncer(source)
+
+        runBlocking { syncer.sync() }
+        val queriesAfterFirst = source.queries
+        runBlocking { syncer.sync() }
+
+        val saved = runBlocking { db.events().recent(10) }.single()
+        assertEquals("OOO Romashka: reklama", saved.nameRaw, "своя подпись не затирается")
+        assertTrue(source.queries > queriesAfterFirst, "зеркало читается, это нормально")
+    }
+
+    @Test
     fun `позднее имя из телефонной книги подписью не считается`() {
         runBlocking { db.events().insert(event(occurredAt = NOW - 60_000)) }
         val source = FakeSource(listOf(row(1, date = NOW - 60_000, name = "Мама")))

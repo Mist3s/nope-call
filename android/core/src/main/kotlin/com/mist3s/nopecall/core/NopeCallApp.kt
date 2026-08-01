@@ -15,6 +15,7 @@ import com.mist3s.nopecall.core.facts.CallFactsBuilder
 import com.mist3s.nopecall.core.facts.ContactMembership
 import com.mist3s.nopecall.core.facts.EmergencyNumbers
 import com.mist3s.nopecall.core.notify.BlockedCallNotifier
+import com.mist3s.nopecall.core.notify.NotifyStore
 import com.mist3s.nopecall.core.observe.AndroidNetworkContext
 import com.mist3s.nopecall.core.observe.DeviceContext
 import com.mist3s.nopecall.core.observe.LogExporter
@@ -22,6 +23,8 @@ import com.mist3s.nopecall.core.observe.ObservationLog
 import com.mist3s.nopecall.core.observe.ObservationReporter
 import com.mist3s.nopecall.core.observe.ObservationStore
 import com.mist3s.nopecall.core.role.RoleController
+import com.mist3s.nopecall.core.sim.AndroidSimLabels
+import com.mist3s.nopecall.core.sim.SimLabels
 import com.mist3s.nopecall.core.snapshot.DirectorySync
 import com.mist3s.nopecall.core.snapshot.SnapshotStore
 import com.mist3s.nopecall.core.storage.EventRecorder
@@ -129,12 +132,6 @@ public object CoreGraph {
     public val normalizer: PhoneNumberNormalizer by lazy { RuFastPathNormalizer() }
 
     /**
-     * Построение фактов. Индекс контактов и проверка экстренных номеров пока не подключены:
-     * в обоих случаях «не знаю» — безопасный ответ. Промах индекса помечается флагом
-     * `CONTACT_INDEX_STALE`, а экстренные номера всё равно проверяются резервным списком
-     * в настройках снимка (ТЗ §5.4).
-     */
-    /**
      * Индекс контактов. В Device Protected Storage лежат только усечённые хеши номеров,
      * без имён: адресная книга чувствительнее правил (архитектура §5.1, §5.3).
      */
@@ -160,7 +157,9 @@ public object CoreGraph {
      * Уведомления. Создаётся на DE-контексте: уведомление о блокировке отправляется сразу
      * после ответа системе, в том числе до первой разблокировки экрана.
      */
-    public val notifier: BlockedCallNotifier by lazy { BlockedCallNotifier(deviceEncrypted) }
+    public val notifier: BlockedCallNotifier by lazy {
+        BlockedCallNotifier(deviceEncrypted, notifyStore)
+    }
 
     public val callFactsBuilder: CallFactsBuilder by lazy {
         CallFactsBuilder(
@@ -226,7 +225,7 @@ public object CoreGraph {
 
     /** Диагностика (ТЗ §9.7). Тестовый прогон идёт через настоящий снимок и настоящий движок. */
     public val diagnostics: DiagnosticsRepository
-        get() = DiagnosticsRepository(database, snapshots, normalizer)
+        get() = DiagnosticsRepository(database, snapshots, normalizer, eventSpool)
 
     /**
      * Выгрузка логов. Архив собирается в обычный (CE) кэш, а не в DE-хранилище: `FileProvider`
@@ -262,10 +261,6 @@ public object CoreGraph {
         get() = JournalRepository(database)
 
     /**
-     * Синхронизация зеркала системного журнала. Требует `READ_CALL_LOG`; без него зеркало
-     * остаётся пустым, и раздел «Журнал» показывает только собственные проверки (ТЗ §7.2).
-     */
-    /**
      * Номера телефонной книги для предпросмотра правила (ТЗ §18 п. 16).
      *
      * Отдельно от [contactIndex]: индекс хранит только усечённые хеши, и по хешам нельзя
@@ -280,10 +275,26 @@ public object CoreGraph {
     public val rulesTransfer: RulesTransfer
         get() = RulesTransfer(rules, appVersion = deviceContext.appVersion)
 
+    /** Настройки уведомлений в DE-хранилище: уведомитель работает и до разблокировки. */
+    public val notifyStore: NotifyStore by lazy { NotifyStore(deviceEncrypted) }
+
+    /**
+     * Метки SIM для фильтра журнала (ТЗ §7.4).
+     *
+     * Через `get()`, а не `by lazy`: имя оператора читается заново при каждом показе фильтра —
+     * карту могли вынуть, а устаревшая метка врёт молча.
+     */
+    public val simLabels: SimLabels
+        get() = AndroidSimLabels(credentialContext ?: deviceEncrypted)
+
     /** Выгрузка журнала в CSV (ТЗ §7.6). */
     public val journalCsv: JournalCsv
         get() = JournalCsv(journal)
 
+    /**
+     * Синхронизация зеркала системного журнала. Требует `READ_CALL_LOG`; без него зеркало
+     * остаётся пустым, и раздел «Журнал» показывает только собственные проверки (ТЗ §7.2).
+     */
     public val callLogSyncer: CallLogSyncer
         get() = CallLogSyncer(
             db = database,

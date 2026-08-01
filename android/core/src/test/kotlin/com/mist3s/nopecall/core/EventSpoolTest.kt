@@ -159,6 +159,52 @@ class EventSpoolTest {
     }
 
     @Test
+    fun `событие, пришедшее во время слива, не теряется`() {
+        // Слив открывает Room, а это десятки-сотни миллисекунд: за это время может прийти
+        // звонок. Раньше `clear()` удалял файл целиком, и такая запись исчезала — при том,
+        // что синхронная запись после ответа сделана ровно ради того, чтобы не потеряться.
+        val dir = temp.newFolder("spool-race")
+        val spool = EventSpool(dir)
+        spool.append(record())
+
+        val taken = spool.drain()
+        assertEquals(1, taken.size)
+
+        // Звонок во время слива.
+        spool.append(record())
+        spool.clear()
+
+        assertEquals(1, spool.drain().size, "запись, пришедшая во время слива, обязана остаться")
+    }
+
+    @Test
+    fun `прерванный слив повторяется, а не теряется`() {
+        val dir = temp.newFolder("spool-crash")
+        val spool = EventSpool(dir)
+        spool.append(record())
+
+        assertEquals(1, spool.drain().size)
+        // clear() не вызван: процесс умер между сливом и подтверждением.
+        val afterRestart = EventSpool(dir)
+        assertEquals(1, afterRestart.drain().size, "тот же файл обязан прочитаться заново")
+    }
+
+    @Test
+    fun `по достижении предела новые записи отбрасываются со счётчиком`() {
+        // Без предела спул растёт неограниченно, если Room долго недоступен (§9.2).
+        val dir = temp.newFolder("spool-limit")
+        val spool = EventSpool(dir)
+        val file = java.io.File(dir, EventSpool.FILE_NAME)
+        file.parentFile?.mkdirs()
+        file.writeText("x".repeat((EventSpool.MAX_BYTES + 1).toInt()))
+
+        spool.append(record())
+
+        assertEquals(1, spool.droppedCount(), "отброшенное обязано быть видно счётчиком")
+        assertEquals(0, spool.drain().count { it.startsWith("{") }, "новых записей не добавилось")
+    }
+
+    @Test
     fun `обрезанная строка отбрасывается молча, остальные переносятся`() {
         // Процесс мог умереть посередине записи — это ожидаемый случай, а не ошибка.
         val dir = temp.newFolder("spool5")

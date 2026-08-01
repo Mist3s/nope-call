@@ -15,6 +15,7 @@ import com.mist3s.nopecall.engine.MatchType
 import com.mist3s.nopecall.engine.NameCanonizer
 import com.mist3s.nopecall.engine.NameSource
 import com.mist3s.nopecall.engine.NumberPresentation
+import com.mist3s.nopecall.engine.PatternCheck
 import com.mist3s.nopecall.engine.RuFastPathNormalizer
 import com.mist3s.nopecall.engine.RuleEngine
 import com.mist3s.nopecall.engine.RuleTarget
@@ -81,6 +82,36 @@ class RulesRepositoryTest {
         RuleEngine.decide(f, snapshots.current()!!, Budget.unlimited())
 
     // --- сохранение делает правило действующим -----------------------------------------------
+
+    @Test
+    fun `редактор обещает ровно те написания, что попадут в снимок`() {
+        // Инвариант, а не пример: раньше проверка шаблона считала варианты для категории
+        // вызова, а сохранение флаг не ставило — редактор показывал десятки написаний,
+        // в снимке было одно.
+        for (target in listOf(RuleTarget.NAME, RuleTarget.NAME_ORG, RuleTarget.NAME_CATEGORY)) {
+            val check = repo.validate(target, MatchType.TOKEN, "Полезный") as PatternCheck.Ok
+            val id = runBlocking {
+                repo.save(
+                    id = null, title = "п", target = target, matchType = MatchType.TOKEN,
+                    pattern = "Полезный", action = CallAction.REJECT,
+                )
+            }
+            val saved = runBlocking { db.rules().byId((id as SaveResult.Saved).id) }!!
+
+            val inSnapshot = if (saved.translitVariants) {
+                saved.patternVariants.split("\n").filter { it.isNotEmpty() }.toSet()
+            } else {
+                emptySet()
+            }
+            val promised = check.variants.toSet()
+
+            assertEquals(
+                promised.isEmpty(), inSnapshot.isEmpty(),
+                "$target: редактор и снимок обязаны сходиться в самом факте вариантов",
+            )
+            if (promised.isNotEmpty()) assertEquals(promised, inSnapshot, "$target")
+        }
+    }
 
     @Test
     fun `сохранённое правило сразу начинает блокировать`() {

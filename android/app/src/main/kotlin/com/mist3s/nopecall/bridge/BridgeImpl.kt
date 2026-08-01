@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.mist3s.nopecall.R
 import com.mist3s.nopecall.core.CoreGraph
+import com.mist3s.nopecall.core.notify.NotifyConfig
 import com.mist3s.nopecall.core.observe.LogExporter
 import com.mist3s.nopecall.core.observe.ObservationConfig
 import com.mist3s.nopecall.core.role.RoleController
@@ -114,6 +116,12 @@ internal class StatusApiImpl(
         val wanted = buildList {
             add(android.Manifest.permission.READ_CALL_LOG)
             add(android.Manifest.permission.READ_CONTACTS)
+            // Необязательное по ТЗ §10, но без него недостижимы три вещи: имя оператора
+            // и слот у SIM в фильтре журнала (§7.4), тип сети и VoLTE в наблюдении (§7.7.1),
+            // системная проверка экстренного номера (§5.4). Оно было объявлено в манифесте
+            // и не запрашивалось — то есть пользователь видел разрешение «Телефон» в списке,
+            // а приложение им не пользовалось. Отказ по нему ничего не ломает.
+            add(android.Manifest.permission.READ_PHONE_STATE)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 add(android.Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -134,6 +142,23 @@ internal class StatusApiImpl(
                 data = Uri.fromParts("package", activity.packageName, null)
             }
         )
+    }
+
+    /**
+     * Системные настройки уведомлений приложения.
+     *
+     * Звук и важность — свойства канала, и Android не даёт менять их после создания: попытка
+     * пересоздать канал с другой важностью просто игнорируется. Поэтому переключателей звука
+     * в приложении нет, а есть переход туда, где это действительно настраивается.
+     */
+    override fun openNotificationSettings() {
+        val activity = activityProvider() ?: return
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+        }
+        // Резерв — общие настройки приложения: на части прошивок экрана каналов нет.
+        val opened = runCatching { activity.startActivity(intent) }.isSuccess
+        if (!opened) openAppSettings()
     }
 
     private fun unknownStatus() = SetupStatus(
@@ -359,7 +384,7 @@ internal class RulesApiImpl(
                             putExtra(Intent.EXTRA_SUBJECT, file.name)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         },
-                        "Сохранить правила",
+                        activity.getString(R.string.share_rules_title),
                     )
                 )
                 true
@@ -559,8 +584,21 @@ internal class JournalApiImpl(
         }
     }
 
-    override fun sims(callback: (Result<List<String>>) -> Unit) {
-        bridge.scope.launch { callback(runCatching { CoreGraph.journal.sims() }) }
+    override fun sims(callback: (Result<List<SimDto>>) -> Unit) {
+        bridge.scope.launch {
+            callback(
+                runCatching {
+                    CoreGraph.drainPending()
+                    // Метки читаются здесь, а не в `:core`-запросе: в журнале хранится
+                    // `phoneAccountId`, а имя оператора живёт в telephony и требует разрешения.
+                    val labels = CoreGraph.simLabels
+                    CoreGraph.journal.sims().map { id ->
+                        val label = labels.labelFor(id)
+                        SimDto(id = id, label = label.text, nameKnown = label.known)
+                    }
+                }
+            )
+        }
     }
 
     override fun hide(systemId: Long, callback: (Result<Unit>) -> Unit) {
@@ -568,7 +606,17 @@ internal class JournalApiImpl(
     }
 
     override fun clear(callback: (Result<Long>) -> Unit) {
-        bridge.scope.launch { callback(runCatching { CoreGraph.journal.clear().toLong() }) }
+        bridge.scope.launch {
+            callback(
+                runCatching {
+                    // Слив очереди перед очисткой: иначе события из Direct Boot, ещё не
+                    // перенесённые в Room, всплыли бы в журнале уже после того, как
+                    // пользователь его очистил.
+                    CoreGraph.drainPending()
+                    CoreGraph.journal.clear().toLong()
+                }
+            )
+        }
     }
 
     /**
@@ -609,7 +657,7 @@ internal class JournalApiImpl(
                             putExtra(Intent.EXTRA_SUBJECT, file.name)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         },
-                        "Сохранить журнал",
+                        activity.getString(R.string.share_journal_title),
                     )
                 )
                 rows.toLong()
@@ -768,7 +816,7 @@ internal class ObservationApiImpl(
                 CoreGraph.drainPending()
                 // Сводка строится по окну выгрузки, а не за фиксированные 30 суток:
                 // иначе `summary.txt` и `manifest.json` в одном архиве говорят разное.
-                val report = CoreGraph.observationReporter.report(since = fromAt, until = toAt)
+                val report = CoreGraph.observationReporter.report(since = fromAt)
                 val config = CoreGraph.observationStore.config()
                 val exported = CoreGraph.logExporter.export(
                     LogExporter.Request(
@@ -803,7 +851,7 @@ internal class ObservationApiImpl(
                 }
                 // Выбор приложения делает пользователь: отправить логи само приложение
                 // не может и не должно (ТЗ §7.7.3 п. 4).
-                activity.startActivity(Intent.createChooser(send, "Отправить логи"))
+                activity.startActivity(Intent.createChooser(send, activity.getString(R.string.share_logs_title)))
                 true
             }
             callback(result)
@@ -844,6 +892,7 @@ internal class DiagnosticsApiImpl(
                 val permissions = listOfNotNull(
                     "журнал звонков: ${yesNo(role.hasPermission(android.Manifest.permission.READ_CALL_LOG))}",
                     "контакты: ${yesNo(role.hasPermission(android.Manifest.permission.READ_CONTACTS))}",
+                    "телефон: ${yesNo(role.hasPermission(android.Manifest.permission.READ_PHONE_STATE))}",
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                         "уведомления: ${yesNo(role.hasPermission(android.Manifest.permission.POST_NOTIFICATIONS))}"
                     } else {
@@ -852,6 +901,7 @@ internal class DiagnosticsApiImpl(
                 ).joinToString(", ")
 
                 DiagnosticsDto(
+                    droppedPendingEvents = report.droppedPendingEvents,
                     checksLast7Days = report.checksLast7Days.toLong(),
                     latencyP50 = report.latencyP50.toLong(),
                     latencyP95 = report.latencyP95.toLong(),
@@ -1060,9 +1110,22 @@ internal class SettingsApiImpl(private val bridge: BridgeScope) : SettingsApi {
 
     override fun put(key: String, value: String, callback: (Result<Unit>) -> Unit) {
         bridge.scope.launch {
-            // Настройка меняет решение по звонку, поэтому пересборка снимка обязательна —
-            // она внутри putSetting.
-            callback(runCatching { CoreGraph.rules.putSetting(key, value) })
+            callback(
+                runCatching {
+                    if (key in NotifyConfig.KEYS) {
+                        // Настройки уведомлений на решение не влияют: снимок не пересобирается.
+                        // Зато зеркалятся в DE-хранилище — уведомитель работает и до первой
+                        // разблокировки экрана, когда Room недоступен.
+                        CoreGraph.rules.putInternal(key, value)
+                        val stored = CoreGraph.rules.allSettings()
+                        CoreGraph.notifyStore.save(NotifyConfig.fromMap(stored))
+                    } else {
+                        // Настройка меняет решение по звонку, поэтому пересборка снимка
+                        // обязательна — она внутри putSetting.
+                        CoreGraph.rules.putSetting(key, value)
+                    }
+                }
+            )
         }
     }
 }

@@ -18,8 +18,19 @@ import com.mist3s.nopecall.core.R
  *
  * Канал низкой важности: звук у уведомления о **предотвращённом** звонке раздражает сильнее
  * самого звонка.
+ *
+ * Оба уведомления выключаются настройкой. Звук и способ показа — свойства канала, и после
+ * его создания приложение их менять не может: этим управляет система, и интерфейс обязан
+ * отправлять пользователя туда, а не делать вид, что настраивает сам.
  */
-public class BlockedCallNotifier(private val context: Context) {
+public class BlockedCallNotifier(
+    private val context: Context,
+    /**
+     * Настройки уведомлений. Читаются из DE-хранилища: уведомление отправляется сразу после
+     * ответа Telecom, в том числе до первой разблокировки экрана, когда Room недоступен.
+     */
+    private val settings: NotifyStore = NotifyStore(context),
+) {
 
     public fun ensureChannels() {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -47,6 +58,7 @@ public class BlockedCallNotifier(private val context: Context) {
     /** @param who номер или подпись — то, что увидел бы пользователь. */
     public fun notifyBlocked(who: String, ruleId: Long?, ruleTitle: String?) {
         if (!canNotify()) return
+        if (!settings.config().blocked) return
         val text = if (ruleTitle != null) {
             context.getString(R.string.blocked_by_rule, ruleTitle)
         } else {
@@ -73,6 +85,7 @@ public class BlockedCallNotifier(private val context: Context) {
      */
     public fun notifyRoleLost() {
         if (!canNotify()) return
+        if (!settings.config().roleLost) return
         val notification = NotificationCompat.Builder(context, CHANNEL_ROLE)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.role_lost_title))

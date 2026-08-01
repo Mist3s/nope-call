@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/nope_call_api.g.dart';
@@ -26,12 +28,19 @@ class _JournalScreenState extends State<JournalScreen> {
   final _scroll = ScrollController();
   final _search = TextEditingController();
 
+  /// Пауза перед применением поиска.
+  ///
+  /// Раньше поиск применялся **только** по нажатию «готово» на клавиатуре: пользователь
+  /// набирал текст и не понимал, почему список не меняется. Каждый набранный символ —
+  /// это запрос к базе с двумя `LIKE`, поэтому не сразу, а после паузы.
+  Timer? _searchDebounce;
+
   Loadable<List<JournalItemDto>> _state = const Loadable(loading: true);
   JournalCursorDto? _next;
   bool _hasMore = true;
   bool _loadingMore = false;
   bool _searchOpen = false;
-  List<String> _sims = const [];
+  List<SimDto> _sims = const [];
 
   var _filter = JournalFilterDto(kind: 'ALL');
 
@@ -49,6 +58,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _scroll.dispose();
     _search.dispose();
     super.dispose();
@@ -57,7 +67,7 @@ class _JournalScreenState extends State<JournalScreen> {
   Future<void> _loadSims() async {
     try {
       final sims = await _repo.journalSims();
-      if (mounted) setState(() => _sims = sims.whereType<String>().toList());
+      if (mounted) setState(() => _sims = sims.whereType<SimDto>().toList());
     } catch (_) {
       // Фильтр по SIM — удобство. Его отсутствие не должно ронять журнал.
     }
@@ -167,8 +177,12 @@ class _JournalScreenState extends State<JournalScreen> {
                   hintText: 'Номер или название',
                   border: InputBorder.none,
                 ),
-                onSubmitted: (value) =>
-                    _applyFilter(_copyWith(_filter, search: value.trim())),
+                onChanged: _onSearchChanged,
+                onSubmitted: (value) {
+                  // Нажатие «готово» применяет немедленно, не дожидаясь паузы.
+                  _searchDebounce?.cancel();
+                  _applyFilter(_copyWith(_filter, search: value.trim()));
+                },
               )
             : const Text('Журнал'),
         actions: [
@@ -275,6 +289,14 @@ class _JournalScreenState extends State<JournalScreen> {
       f.ruleId == null &&
       f.sim == null;
 
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _applyFilter(_copyWith(_filter, search: value.trim())),
+    );
+  }
+
   /// Поиск один, а полей два: цифры ищутся по номеру, всё остальное — по названию.
   /// Разделение здесь, а не в Kotlin, потому что это решение интерфейса, а не модели.
   JournalFilterDto _copyWith(
@@ -285,11 +307,22 @@ class _JournalScreenState extends State<JournalScreen> {
     String? digits = f.digitsQuery;
     String? name = f.nameQuery;
     if (search != null) {
+      // Правило простое и предсказуемое: есть буквы — ищем по названию, нет — по номеру.
+      // Раньше здесь стояло «цифр не меньше, чем длина минус три», и запрос «Мама 8»
+      // оказывался поиском по названию «Мама 8», которого в свёрнутой форме не существует.
+      // Оба поля одновременно заполнять нельзя: в запросе они соединены через AND.
+      final hasLetters = RegExp(r'\p{L}', unicode: true).hasMatch(search);
       final onlyDigits = search.replaceAll(RegExp(r'[^0-9]'), '');
-      final isNumber =
-          search.isNotEmpty && onlyDigits.length >= search.length - 3;
-      digits = search.isEmpty ? null : (isNumber ? onlyDigits : null);
-      name = search.isEmpty ? null : (isNumber ? null : search);
+      if (search.isEmpty) {
+        digits = null;
+        name = null;
+      } else if (hasLetters) {
+        digits = null;
+        name = search;
+      } else {
+        digits = onlyDigits.isEmpty ? null : onlyDigits;
+        name = null;
+      }
     }
     return JournalFilterDto(
       kind: kind ?? f.kind,

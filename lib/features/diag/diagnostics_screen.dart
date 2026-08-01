@@ -31,6 +31,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   }
 
   Future<void> _load() async {
+    // `_load` вызывается не только из `initState`, но и после `await` — из обновления
+    // и из применения настройки. Ведущий `setState` без этой проверки бросал бы ассертом
+    // на экране, который пользователь успел закрыть.
+    if (!mounted) return;
     setState(() => _state = Loadable(data: _state.data, loading: true));
     try {
       final report = await _repo.diagnostics();
@@ -273,6 +277,9 @@ class _SpeedCard extends StatelessWidget {
             _Row('Медиана', '${report.latencyP50} мс'),
             _Row('95-й процентиль', '${report.latencyP95} мс'),
             _Row('Максимум', '${report.latencyMax} мс'),
+            // Показывается всегда, а не только при ненулевом значении: «0» здесь —
+            // это утверждение «ни одна проверка не потерялась», и его надо видеть.
+            _Row('Потеряно записей', '${report.droppedPendingEvents}'),
             if (report.degradedCounts.isNotEmpty) ...[
               const SizedBox(height: 12),
               Text('Причины решений', style: theme.textTheme.labelLarge),

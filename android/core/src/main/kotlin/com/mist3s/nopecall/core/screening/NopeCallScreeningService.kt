@@ -14,7 +14,6 @@ import com.mist3s.nopecall.engine.Budget
 import com.mist3s.nopecall.engine.Decision
 import com.mist3s.nopecall.engine.DecisionReason
 import com.mist3s.nopecall.engine.Degradation
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -39,7 +38,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class NopeCallScreeningService : CallScreeningService() {
 
-    private val sessions = ConcurrentHashMap<Call.Details, CallSession>()
+    // Реестра сессий здесь нет сознательно.
+    //
+    // Архитектура §4.2 приводила `ConcurrentHashMap<Call.Details, CallSession>`, и он был
+    // написан — но не читался ни разу: состояние ответа и так принадлежит звонку, потому что
+    // `CallSession` передаётся и сторожу, и `answerOnce`. Карта, которую никто не читает, —
+    // это не подстраховка, а вид подстраховки; хуже, она обещала «вытеснение по возрасту»,
+    // которого не было. Требование §4.2 держится на том, что флаг «уже ответили» лежит
+    // в сессии звонка, а не на сервисе.
 
     override fun onScreenCall(callDetails: Call.Details) {
         val startedAt = System.nanoTime()
@@ -49,7 +55,6 @@ internal class NopeCallScreeningService : CallScreeningService() {
             .getOrDefault(false)
 
         val session = CallSession(callDetails, budgetMs = budgetFor(callDetails))
-        sessions[callDetails] = session
 
         // Сторож на отдельном потоке: если движок встанет (катастрофический regex, залипший
         // провайдер), платформенный поток занят и сам себя не спасёт — отвечает сторож.
@@ -64,7 +69,12 @@ internal class NopeCallScreeningService : CallScreeningService() {
             pipeline().decide(
                 details = reader,
                 budget = Budget.wallClock(
-                    totalNanos = session.budgetMs * 1_000_000,
+                    // Бюджет прохода — из §4.5, а не бюджет сторожа. Раньше сюда уходило
+                    // значение сторожа (250–1500 мс), и `ENGINE_BUDGET_EXCEEDED` не наступал
+                    // практически никогда: вместо аккуратного выхода с причиной звонок доезжал
+                    // до сторожа и получал более грубую деградацию. Минимум со сторожем нужен,
+                    // потому что на подходе к системному дедлайну бюджет сторожа меньше 200 мс.
+                    totalNanos = ScreeningPipeline.engineBudgetMs(session.budgetMs) * 1_000_000,
                     perRuleNanos = PER_RULE_BUDGET_NANOS,
                 ),
                 coldStart = coldStart,
@@ -74,8 +84,19 @@ internal class NopeCallScreeningService : CallScreeningService() {
             )
         } catch (t: Throwable) {
             // Единая воронка отказов: любой сбой означает разрешить звонок (ТЗ §1.1).
+            //
+            // Деградации собираются здесь же: `Outcome` строится в обход конвейера, и без них
+            // запись о самом тяжёлом отказе теряла бы ровно те два флага, которые его объясняют.
             Log.w(TAG, "сбой при принятии решения, звонок разрешён", t)
-            ScreeningPipeline.Outcome(Decision.allow(DecisionReason.SNAPSHOT_UNAVAILABLE), facts = null)
+            var flags = 0
+            if (coldStart) flags = flags or Degradation.COLD_START.bit
+            if (getSystemService(UserManager::class.java)?.isUserUnlocked == false) {
+                flags = flags or Degradation.DIRECT_BOOT.bit
+            }
+            ScreeningPipeline.Outcome(
+                Decision.allow(DecisionReason.ENGINE_FAILED).withDegradations(flags),
+                facts = null,
+            )
         }
 
         val decision = outcome.decision.copy(elapsedNanos = System.nanoTime() - startedAt)
@@ -224,7 +245,6 @@ internal class NopeCallScreeningService : CallScreeningService() {
     private fun answerOnce(session: CallSession, decision: Decision) {
         if (!session.answered.compareAndSet(false, true)) return
         session.watchdog?.cancel(false)
-        sessions.remove(session.details)
         try {
             respondToCall(session.details, decision.toCallResponse())
         } catch (t: Throwable) {

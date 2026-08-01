@@ -39,6 +39,10 @@ class _ObserveScreenState extends State<ObserveScreen> {
   }
 
   Future<void> _load() async {
+    // `_load` вызывается не только из `initState`, но и после `await` — из обновления
+    // и из применения настройки. Ведущий `setState` без этой проверки бросал бы ассертом
+    // на экране, который пользователь успел закрыть.
+    if (!mounted) return;
     setState(() => _state = Loadable(data: _state.data, loading: true));
     try {
       final status = await _repo.observationStatus();
@@ -713,7 +717,10 @@ class _NumberTile extends StatelessWidget {
           decoration: const InputDecoration(isDense: true),
           onFieldSubmitted: (raw) {
             final parsed = int.tryParse(raw.trim());
-            if (parsed != null && parsed >= 0) onChanged(parsed);
+            // Ноль не принимается: он означал бы «ничего не хранить», и режим наблюдения
+            // молча перестал бы собирать то, ради чего включён. Выключать его надо
+            // выключателем, а не нулём в поле объёма.
+            if (parsed != null && parsed >= 1) onChanged(parsed);
           },
         ),
       ),

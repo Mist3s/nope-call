@@ -825,6 +825,64 @@ class JournalPageDto {
   }
 }
 
+/// SIM, встречавшаяся в журнале (ТЗ §7.4).
+///
+/// [id] — то, что отдал Telecom (`phoneAccountId`); на большинстве прошивок это серийный номер
+/// карты. Фильтр сравнивает по нему. [label] — то, что видит пользователь: «МТС · SIM 1», либо
+/// «Карта …6644», если имя оператора недоступно. Раньше в списке стоял сам [id], и выбрать
+/// нужную карту по серийному номеру было невозможно.
+class SimDto {
+  SimDto({required this.id, required this.label, required this.nameKnown});
+
+  String id;
+
+  String label;
+
+  /// Настоящее ли это имя. `false` — показана короткая форма, и интерфейс обязан сказать,
+  /// какого разрешения не хватает, а не делать вид, что так и надо.
+  bool nameKnown;
+
+  List<Object?> _toList() {
+    return <Object?>[id, label, nameKnown];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static SimDto decode(Object result) {
+    result as List<Object?>;
+    return SimDto(
+      id: result[0]! as String,
+      label: result[1]! as String,
+      nameKnown: result[2]! as bool,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! SimDto || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(id, other.id) &&
+        _deepEquals(label, other.label) &&
+        _deepEquals(nameKnown, other.nameKnown);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'SimDto(id: $id, label: $label, nameKnown: $nameKnown)';
+  }
+}
+
 class SummaryDto {
   SummaryDto({
     required this.blockedToday,
@@ -1667,6 +1725,7 @@ class ExportEstimateDto {
 /// диагностики поддержка возможна только подключением к телефону пользователя.
 class DiagnosticsDto {
   DiagnosticsDto({
+    required this.droppedPendingEvents,
     required this.checksLast7Days,
     required this.latencyP50,
     required this.latencyP95,
@@ -1688,6 +1747,10 @@ class DiagnosticsDto {
     this.snapshotError,
     this.batteryUnrestricted,
   });
+
+  /// Записей события, отброшенных по достижении предела очереди Direct Boot (§9.2).
+  /// Показывается всегда: «0» здесь — это утверждение «ничего не потеряно».
+  int droppedPendingEvents;
 
   int checksLast7Days;
 
@@ -1735,6 +1798,7 @@ class DiagnosticsDto {
 
   List<Object?> _toList() {
     return <Object?>[
+      droppedPendingEvents,
       checksLast7Days,
       latencyP50,
       latencyP95,
@@ -1765,26 +1829,27 @@ class DiagnosticsDto {
   static DiagnosticsDto decode(Object result) {
     result as List<Object?>;
     return DiagnosticsDto(
-      checksLast7Days: result[0]! as int,
-      latencyP50: result[1]! as int,
-      latencyP95: result[2]! as int,
-      latencyMax: result[3]! as int,
-      degradedCounts: (result[4]! as List<Object?>).cast<BucketDto>(),
-      ruleErrors: (result[5]! as List<Object?>).cast<RuleErrorDto>(),
-      lastEvents: (result[6]! as List<Object?>).cast<EventLineDto>(),
-      nameSources: (result[7]! as List<Object?>).cast<BucketDto>(),
-      withSignatureLast100: result[8]! as int,
-      checkedLast100: result[9]! as int,
-      volte: (result[10]! as List<Object?>).cast<BucketDto>(),
-      signatureLooksUnavailable: result[11]! as bool,
-      device: result[12]! as String,
-      reportText: result[13]! as String,
-      snapshotFormatVersion: result[14] as int?,
-      snapshotCanonVersion: result[15] as int?,
-      snapshotRuleCount: result[16] as int?,
-      snapshotBuiltAt: result[17] as int?,
-      snapshotError: result[18] as String?,
-      batteryUnrestricted: result[19] as bool?,
+      droppedPendingEvents: result[0]! as int,
+      checksLast7Days: result[1]! as int,
+      latencyP50: result[2]! as int,
+      latencyP95: result[3]! as int,
+      latencyMax: result[4]! as int,
+      degradedCounts: (result[5]! as List<Object?>).cast<BucketDto>(),
+      ruleErrors: (result[6]! as List<Object?>).cast<RuleErrorDto>(),
+      lastEvents: (result[7]! as List<Object?>).cast<EventLineDto>(),
+      nameSources: (result[8]! as List<Object?>).cast<BucketDto>(),
+      withSignatureLast100: result[9]! as int,
+      checkedLast100: result[10]! as int,
+      volte: (result[11]! as List<Object?>).cast<BucketDto>(),
+      signatureLooksUnavailable: result[12]! as bool,
+      device: result[13]! as String,
+      reportText: result[14]! as String,
+      snapshotFormatVersion: result[15] as int?,
+      snapshotCanonVersion: result[16] as int?,
+      snapshotRuleCount: result[17] as int?,
+      snapshotBuiltAt: result[18] as int?,
+      snapshotError: result[19] as String?,
+      batteryUnrestricted: result[20] as bool?,
     );
   }
 
@@ -1797,7 +1862,8 @@ class DiagnosticsDto {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(checksLast7Days, other.checksLast7Days) &&
+    return _deepEquals(droppedPendingEvents, other.droppedPendingEvents) &&
+        _deepEquals(checksLast7Days, other.checksLast7Days) &&
         _deepEquals(latencyP50, other.latencyP50) &&
         _deepEquals(latencyP95, other.latencyP95) &&
         _deepEquals(latencyMax, other.latencyMax) &&
@@ -1828,7 +1894,7 @@ class DiagnosticsDto {
 
   @override
   String toString() {
-    return 'DiagnosticsDto(checksLast7Days: $checksLast7Days, latencyP50: $latencyP50, latencyP95: $latencyP95, latencyMax: $latencyMax, degradedCounts: $degradedCounts, ruleErrors: $ruleErrors, lastEvents: $lastEvents, nameSources: $nameSources, withSignatureLast100: $withSignatureLast100, checkedLast100: $checkedLast100, volte: $volte, signatureLooksUnavailable: $signatureLooksUnavailable, device: $device, reportText: $reportText, snapshotFormatVersion: $snapshotFormatVersion, snapshotCanonVersion: $snapshotCanonVersion, snapshotRuleCount: $snapshotRuleCount, snapshotBuiltAt: $snapshotBuiltAt, snapshotError: $snapshotError, batteryUnrestricted: $batteryUnrestricted)';
+    return 'DiagnosticsDto(droppedPendingEvents: $droppedPendingEvents, checksLast7Days: $checksLast7Days, latencyP50: $latencyP50, latencyP95: $latencyP95, latencyMax: $latencyMax, degradedCounts: $degradedCounts, ruleErrors: $ruleErrors, lastEvents: $lastEvents, nameSources: $nameSources, withSignatureLast100: $withSignatureLast100, checkedLast100: $checkedLast100, volte: $volte, signatureLooksUnavailable: $signatureLooksUnavailable, device: $device, reportText: $reportText, snapshotFormatVersion: $snapshotFormatVersion, snapshotCanonVersion: $snapshotCanonVersion, snapshotRuleCount: $snapshotRuleCount, snapshotBuiltAt: $snapshotBuiltAt, snapshotError: $snapshotError, batteryUnrestricted: $batteryUnrestricted)';
   }
 }
 
@@ -2191,50 +2257,53 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is JournalPageDto) {
       buffer.putUint8(136);
       writeValue(buffer, value.encode());
-    } else if (value is SummaryDto) {
+    } else if (value is SimDto) {
       buffer.putUint8(137);
       writeValue(buffer, value.encode());
-    } else if (value is SyncResultDto) {
+    } else if (value is SummaryDto) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else if (value is PreviewDto) {
+    } else if (value is SyncResultDto) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else if (value is ImportReportDto) {
+    } else if (value is PreviewDto) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else if (value is UpdateStatusDto) {
+    } else if (value is ImportReportDto) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else if (value is ObservationStatusDto) {
+    } else if (value is UpdateStatusDto) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    } else if (value is BucketDto) {
+    } else if (value is ObservationStatusDto) {
       buffer.putUint8(143);
       writeValue(buffer, value.encode());
-    } else if (value is SignatureDto) {
+    } else if (value is BucketDto) {
       buffer.putUint8(144);
       writeValue(buffer, value.encode());
-    } else if (value is ObservationReportDto) {
+    } else if (value is SignatureDto) {
       buffer.putUint8(145);
       writeValue(buffer, value.encode());
-    } else if (value is ExportEstimateDto) {
+    } else if (value is ObservationReportDto) {
       buffer.putUint8(146);
       writeValue(buffer, value.encode());
-    } else if (value is DiagnosticsDto) {
+    } else if (value is ExportEstimateDto) {
       buffer.putUint8(147);
       writeValue(buffer, value.encode());
-    } else if (value is RuleErrorDto) {
+    } else if (value is DiagnosticsDto) {
       buffer.putUint8(148);
       writeValue(buffer, value.encode());
-    } else if (value is EventLineDto) {
+    } else if (value is RuleErrorDto) {
       buffer.putUint8(149);
       writeValue(buffer, value.encode());
-    } else if (value is TraceStepDto) {
+    } else if (value is EventLineDto) {
       buffer.putUint8(150);
       writeValue(buffer, value.encode());
-    } else if (value is TestRunDto) {
+    } else if (value is TraceStepDto) {
       buffer.putUint8(151);
+      writeValue(buffer, value.encode());
+    } else if (value is TestRunDto) {
+      buffer.putUint8(152);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -2261,34 +2330,36 @@ class _PigeonCodec extends StandardMessageCodec {
       case 136:
         return JournalPageDto.decode(readValue(buffer)!);
       case 137:
-        return SummaryDto.decode(readValue(buffer)!);
+        return SimDto.decode(readValue(buffer)!);
       case 138:
-        return SyncResultDto.decode(readValue(buffer)!);
+        return SummaryDto.decode(readValue(buffer)!);
       case 139:
-        return PreviewDto.decode(readValue(buffer)!);
+        return SyncResultDto.decode(readValue(buffer)!);
       case 140:
-        return ImportReportDto.decode(readValue(buffer)!);
+        return PreviewDto.decode(readValue(buffer)!);
       case 141:
-        return UpdateStatusDto.decode(readValue(buffer)!);
+        return ImportReportDto.decode(readValue(buffer)!);
       case 142:
-        return ObservationStatusDto.decode(readValue(buffer)!);
+        return UpdateStatusDto.decode(readValue(buffer)!);
       case 143:
-        return BucketDto.decode(readValue(buffer)!);
+        return ObservationStatusDto.decode(readValue(buffer)!);
       case 144:
-        return SignatureDto.decode(readValue(buffer)!);
+        return BucketDto.decode(readValue(buffer)!);
       case 145:
-        return ObservationReportDto.decode(readValue(buffer)!);
+        return SignatureDto.decode(readValue(buffer)!);
       case 146:
-        return ExportEstimateDto.decode(readValue(buffer)!);
+        return ObservationReportDto.decode(readValue(buffer)!);
       case 147:
-        return DiagnosticsDto.decode(readValue(buffer)!);
+        return ExportEstimateDto.decode(readValue(buffer)!);
       case 148:
-        return RuleErrorDto.decode(readValue(buffer)!);
+        return DiagnosticsDto.decode(readValue(buffer)!);
       case 149:
-        return EventLineDto.decode(readValue(buffer)!);
+        return RuleErrorDto.decode(readValue(buffer)!);
       case 150:
-        return TraceStepDto.decode(readValue(buffer)!);
+        return EventLineDto.decode(readValue(buffer)!);
       case 151:
+        return TraceStepDto.decode(readValue(buffer)!);
+      case 152:
         return TestRunDto.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -2378,6 +2449,29 @@ class StatusApi {
   Future<void> openAppSettings() async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.nope_call.StatusApi.openAppSettings$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  /// Системные настройки уведомлений приложения.
+  ///
+  /// Звук, важность и способ показа — свойства канала, и после его создания приложение
+  /// их менять не может: этим управляет система. Поэтому здесь именно переход, а не
+  /// собственные переключатели, которые делали бы вид, что настраивают.
+  Future<void> openNotificationSettings() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.nope_call.StatusApi.openNotificationSettings$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -2688,7 +2782,7 @@ class JournalApi {
   }
 
   /// Какие SIM встречались в журнале. Пусто — фильтр по SIM показывать незачем.
-  Future<List<String>> sims() async {
+  Future<List<SimDto>> sims() async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.nope_call.JournalApi.sims$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
@@ -2704,7 +2798,7 @@ class JournalApi {
       pigeonVar_channelName,
       isNullValid: false,
     );
-    return (pigeonVar_replyValue! as List<Object?>).cast<String>();
+    return (pigeonVar_replyValue! as List<Object?>).cast<SimDto>();
   }
 
   /// Скрыть запись локально. Системный журнал Android при этом не трогается (ТЗ §7.2).

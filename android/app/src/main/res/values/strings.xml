@@ -2,4 +2,13 @@
 <resources>
     <!-- Отображаемое имя приложения. Интерфейс — на русском (ТЗ §11.5). -->
     <string name="app_name">Отбой</string>
+
+    <!--
+        Заголовки системного диалога выбора приложения. В ресурсах, а не в коде моста:
+        остальная локализация живёт в Dart, и строка интерфейса посреди Kotlin находится
+        поиском в последнюю очередь.
+    -->
+    <string name="share_rules_title">Сохранить правила</string>
+    <string name="share_journal_title">Сохранить журнал</string>
+    <string name="share_logs_title">Отправить логи</string>
 </resources>

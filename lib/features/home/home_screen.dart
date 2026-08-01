@@ -29,6 +29,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Обновление тихое: карточка статуса и счётчики остаются на экране, пока идёт запрос.
   /// Иначе возврат из системного диалога роли ронял бы экран в спиннер.
   Future<void> _load() async {
+    // `_load` вызывается не только из `initState`, но и после `await` — из обновления
+    // и из применения настройки. Ведущий `setState` без этой проверки бросал бы ассертом
+    // на экране, который пользователь успел закрыть.
+    if (!mounted) return;
     setState(() => _state = Loadable(data: _state.data, loading: true));
     try {
       final status = await _repo.status();

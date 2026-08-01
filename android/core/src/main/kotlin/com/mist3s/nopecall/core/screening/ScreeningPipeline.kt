@@ -83,7 +83,7 @@ internal class ScreeningPipeline(
             factsBuilder.build(details, snapshot.settings)
         } catch (t: Throwable) {
             return Outcome(
-                Decision.allow(DecisionReason.SNAPSHOT_UNAVAILABLE).withDegradations(flags),
+                Decision.allow(DecisionReason.FACTS_FAILED).withDegradations(flags),
                 facts = null,
             )
         }
@@ -93,7 +93,7 @@ internal class ScreeningPipeline(
             RuleEngine.decide(facts, snapshot, budget, trace)
         } catch (t: Throwable) {
             // Движок не должен бросать наружу; если всё же бросил — разрешаем.
-            Decision.allow(DecisionReason.SNAPSHOT_UNAVAILABLE)
+            Decision.allow(DecisionReason.ENGINE_FAILED)
         }
 
         return Outcome(
@@ -104,7 +104,7 @@ internal class ScreeningPipeline(
         )
     }
 
-    private companion object {
+    internal companion object {
         /**
          * Предел трассы. При промахе по всем правилам их могут быть тысячи, и складывать
          * каждое в список — плата за диагностику из бюджета звонка.
@@ -117,6 +117,23 @@ internal class ScreeningPipeline(
          * которые до разблокировки экрана могут быть недоступны.
          */
         const val CALL_DIRECTION_OUTGOING = 1
+
+        /** Бюджет прохода по правилам, архитектура §4.5. */
+        const val ENGINE_BUDGET_MS = 200L
+
+        /**
+         * Бюджет, с которым движок идёт по правилам.
+         *
+         * Это **не** бюджет сторожа: сторож — последний рубеж, а проход обязан выйти сам,
+         * аккуратно и с причиной `ENGINE_BUDGET_EXCEEDED`, чтобы событие и наблюдение
+         * записались нормально. Минимум нужен на подходе к системному дедлайну: там бюджет
+         * сторожа уже меньше 200 мс, и брать 200 значило бы отдать решение сторожу.
+         *
+         * Вынесено в конвейер, а не оставлено в сервисе, ровно чтобы проверяться тестом:
+         * на самом сервисе тестов нет — он привязан к Telecom.
+         */
+        fun engineBudgetMs(watchdogBudgetMs: Long): Long =
+            minOf(ENGINE_BUDGET_MS, watchdogBudgetMs)
     }
 }
 

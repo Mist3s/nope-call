@@ -12,6 +12,8 @@ import com.mist3s.nopecall.engine.DecisionReason
 import com.mist3s.nopecall.engine.DecisionSettings
 import com.mist3s.nopecall.engine.Degradation
 import com.mist3s.nopecall.engine.MatchType
+import com.mist3s.nopecall.engine.NumberForms
+import com.mist3s.nopecall.engine.PhoneNumberNormalizer
 import com.mist3s.nopecall.engine.RuFastPathNormalizer
 import com.mist3s.nopecall.engine.Rule as BlockRule
 import com.mist3s.nopecall.engine.RuleTarget
@@ -65,6 +67,44 @@ class ScreeningPipelineTest {
     }
 
     private var counter = 0
+
+    @Test
+    fun `бюджет прохода — 200 мс, а не бюджет сторожа`() {
+        // Раньше в движок уходил бюджет сторожа (250–1500 мс), и `ENGINE_BUDGET_EXCEEDED`
+        // не наступал практически никогда: звонок доезжал до сторожа и получал более грубую
+        // деградацию вместо аккуратного выхода с причиной.
+        assertEquals(200L, ScreeningPipeline.engineBudgetMs(1_500))
+        assertEquals(200L, ScreeningPipeline.engineBudgetMs(250))
+        // На подходе к системному дедлайну бюджет сторожа меньше 200 мс — тогда он и главный.
+        assertEquals(120L, ScreeningPipeline.engineBudgetMs(120))
+    }
+
+    @Test
+    fun `сбой сборки фактов отличим от недоступного снимка`() {
+        // Снимок при этом на месте. Раньше обе ветки давали `SNAPSHOT_UNAVAILABLE`,
+        // и разбор жалобы уходил в неверную сторону.
+        val store = SnapshotStore(temp.newFolder("s-facts-${counter++}"))
+        store.write(SnapshotBuilder(RuFastPathNormalizer()).build(emptyList(), settings))
+        // Сборку фактов роняем через нормализатор: подменить сам сборщик нельзя, он финальный,
+        // а отказ нормализации — реальный путь этой ветки (чужой формат номера, сбой резерва).
+        val p = ScreeningPipeline(
+            snapshots = store,
+            factsBuilder = CallFactsBuilder(
+                object : PhoneNumberNormalizer {
+                    override fun normalize(raw: String?, region: String): NumberForms =
+                        throw IllegalStateException("нормализация отказала")
+                },
+                ContactMembership.NONE,
+                EmergencyNumbers { false },
+            ),
+            directBoot = { false },
+        )
+
+        val out = p.decide(FakeCallDetails(), Budget.unlimited(), coldStart = false)
+        assertEquals(CallAction.ALLOW, out.decision.action, "любой сбой — разрешить (§1.1)")
+        assertEquals(DecisionReason.FACTS_FAILED, out.decision.reason)
+        assertNull(out.facts)
+    }
 
     @Test
     fun `исходящий звонок не проверяется правилами`() {

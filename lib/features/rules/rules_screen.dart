@@ -29,6 +29,10 @@ class _RulesScreenState extends State<RulesScreen> {
   /// Обновление **тихое**: прежний список остаётся на экране, пока не придёт новый.
   /// Иначе каждое переключение правила роняло бы список в спиннер и экран мигал.
   Future<void> _load() async {
+    // `_load` вызывается не только из `initState`, но и после `await` — из обновления
+    // и из применения настройки. Ведущий `setState` без этой проверки бросал бы ассертом
+    // на экране, который пользователь успел закрыть.
+    if (!mounted) return;
     setState(() => _state = Loadable(data: _state.data, loading: true));
     try {
       final rules = await _repo.rules();

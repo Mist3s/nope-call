@@ -2,6 +2,7 @@ package com.mist3s.nopecall.core.diag
 
 import com.mist3s.nopecall.core.snapshot.SnapshotStore
 import com.mist3s.nopecall.core.storage.Bucket
+import com.mist3s.nopecall.core.storage.EventSpool
 import com.mist3s.nopecall.core.storage.NopeCallDatabase
 import com.mist3s.nopecall.engine.Budget
 import com.mist3s.nopecall.engine.CallFacts
@@ -38,6 +39,13 @@ public data class DiagnosticsReport(
     val withSignatureLast100: Int,
     val checkedLast100: Int,
     val volte: List<Bucket>,
+    /**
+     * Записей события, отброшенных по достижении предела спула (архитектура §9.2).
+     *
+     * Показывается всегда, а не только при ненулевом значении: «0» здесь — это утверждение
+     * «ничего не потеряно», и оно должно быть видно.
+     */
+    val droppedPendingEvents: Long,
 ) {
     public data class RuleError(val title: String, val errorCount: Int, val lastError: String?)
 
@@ -149,6 +157,8 @@ public class DiagnosticsRepository(
     private val db: NopeCallDatabase,
     private val snapshots: SnapshotStore,
     private val normalizer: PhoneNumberNormalizer,
+    /** Очередь событий из Direct Boot: нужна ради счётчика отброшенного (§9.2). */
+    private val spool: EventSpool? = null,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -193,6 +203,7 @@ public class DiagnosticsRepository(
             },
             checkedLast100 = recent.size,
             volte = events.byVolte(since),
+            droppedPendingEvents = spool?.droppedCount() ?: 0L,
         )
     }
 

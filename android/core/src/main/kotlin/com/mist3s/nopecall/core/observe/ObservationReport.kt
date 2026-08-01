@@ -150,15 +150,19 @@ public class ObservationReporter(
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     public suspend fun report(periodDays: Int = DEFAULT_PERIOD_DAYS): ObservationReport =
-        report(since = now() - periodDays.toLong() * DAY_MS, until = now())
+        report(since = now() - periodDays.toLong() * DAY_MS)
 
     /**
-     * Сводка ровно по окну выгрузки.
+     * Сводка от заданного момента и **до настоящего времени**.
      *
-     * Отдельный вход нужен архиву: сводка за 30 суток рядом с логами за одни сутки — это
-     * расхождение внутри одного файла, и заметит его не тот, кто выгружал, а тот, кто разбирает.
+     * Верхней границы у сводки нет сознательно. Все агрегаты считаются запросами вида
+     * `occurredAt >= :since`, и вторая граница потребовала бы её в пятнадцати запросах ради
+     * случая, которого нет: выгрузка всегда заканчивается «сейчас». Раз границы нет в коде —
+     * её нет и в подписи, и печатается ровно то, что посчитано. Иначе получилось бы то же
+     * расхождение, из-за которого сводка за 30 суток лежала в архиве за одни сутки.
      */
-    public suspend fun report(since: Long, until: Long): ObservationReport {
+    public suspend fun report(since: Long): ObservationReport {
+        val until = now()
         val periodDays = (((until - since) + DAY_MS - 1) / DAY_MS).toInt().coerceAtLeast(1)
         val events = db.events()
 
@@ -216,8 +220,11 @@ public class ObservationReporter(
      */
     private fun List<Int>.percentile(p: Int): Int {
         if (isEmpty()) return 0
-        val index = ((p / 100.0) * size).toInt().coerceIn(0, size - 1)
-        return this[index]
+        // Ближайший ранг: индекс `ceil(p/100 * n) - 1`. Округление вниз, как было раньше,
+        // сдвигало результат на ранг вниз — p95 по сотне значений показывал 96-е по величине
+        // вместо 95-го, а p50 по двум значениям — меньшее вместо большего.
+        val rank = kotlin.math.ceil(p / 100.0 * size).toInt()
+        return this[(rank - 1).coerceIn(0, size - 1)]
     }
 
     public companion object {

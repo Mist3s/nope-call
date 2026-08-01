@@ -19,6 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -338,6 +339,23 @@ class JournalFeedTest {
             event(at = NOW - 1000, digits = "74951234567", matchedSystemId = 60)
         }
         assertEquals(1, runBlocking { journal.previewMatches("NUMBER", "EXACT", "74951234567") }.count)
+    }
+
+    @Test
+    fun `лента не утверждает «названия не было» рядом с показанным названием`() {
+        // Имя подставлялось из зеркала через COALESCE, а источник оставался тем, что записан
+        // в событии, то есть 'NONE'. На экране это читалось как «названия не было» под самим
+        // названием — и это же поле решает, показывать ли метку «уже после решения».
+        runBlocking {
+            mirror(systemId = 80, at = NOW - 1000, digits = "74951234567", name = "Мама")
+            event(at = NOW - 1000, digits = "74951234567", matchedSystemId = 80)
+        }
+
+        val item = runBlocking { journal.page() }.items.single()
+        assertEquals("Мама", item.nameRaw)
+        assertEquals("SYSTEM_LOG", item.nameSource, "источник — системный журнал, а не «нет»")
+        assertTrue(item.nameLate, "такое название по определению пришло после решения")
+        assertFalse(item.hadSignature, "и подписью оно не считается")
     }
 
     @Test

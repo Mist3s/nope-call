@@ -42,9 +42,13 @@ internal class AndroidNetworkContext(private val context: Context) {
             type == TelephonyManager.NETWORK_TYPE_NR
         if (!modern) return false
         // Голос по IMS: без него на LTE звонок уходит в 2G/3G через CSFB, и подписи там нет.
+        //
+        // Метод скрытый, и на Android 9+ обращение к нему блокируется. Раньше отказ подменялся
+        // значением `modern`, то есть в этой точке всегда `true`: сводка показывала «VoLTE есть»
+        // как измеренный факт на любом LTE. Теперь отказ — это `null`, «не измерено».
         return runCatching {
             tm.javaClass.getMethod("isVolteAvailable").invoke(tm) as? Boolean
-        }.getOrNull() ?: modern
+        }.getOrNull()
     }
 
     private fun name(type: Int): String = when (type) {

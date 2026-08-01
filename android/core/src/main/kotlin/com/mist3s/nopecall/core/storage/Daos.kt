@@ -555,11 +555,22 @@ public interface JournalFeedDao {
                 m.e164 AS e164,
                 COALESCE(e.nameRaw, m.name) AS name,
                 COALESCE(e.nameFold, m.nameFold) AS nameFold,
-                COALESCE(
-                    e.nameSource,
-                    CASE WHEN m.name IS NOT NULL THEN 'SYSTEM_LOG' ELSE 'NONE' END
-                ) AS nameSource,
-                e.nameLate AS nameLate,
+                -- Источник берётся у события только если у события есть само название.
+                -- Иначе получалось «названия не было» рядом с показанным названием: имя
+                -- подставлялось из зеркала через COALESCE, а источник оставался тем, что
+                -- записан в событии, то есть 'NONE' (архитектура §7.1).
+                CASE
+                    WHEN e.nameRaw IS NOT NULL AND e.nameRaw <> '' THEN e.nameSource
+                    WHEN m.name IS NOT NULL AND m.name <> '' THEN 'SYSTEM_LOG'
+                    ELSE COALESCE(e.nameSource, 'NONE')
+                END AS nameSource,
+                -- И такое название по определению позднее: оно из строки, которую система
+                -- дописала после звонка, то есть после нашего решения.
+                CASE
+                    WHEN (e.nameRaw IS NULL OR e.nameRaw = '')
+                        AND m.name IS NOT NULL AND m.name <> '' THEN 1
+                    ELSE e.nameLate
+                END AS nameLate,
                 e.action AS decisionAction,
                 e.reason AS reason,
                 e.matchedRuleId AS matchedRuleId,
