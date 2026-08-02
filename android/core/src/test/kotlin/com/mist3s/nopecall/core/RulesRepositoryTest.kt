@@ -238,7 +238,7 @@ class RulesRepositoryTest {
             assertTrue(saved.variants.size > 1, "варианты должны быть раскрыты и показаны")
             assertTrue(repo.all().single().translitVariants)
 
-            assertEquals(CallAction.REJECT, decide(facts("+79990000000", "OOO Poleznyy Zvonok: agenstvo")).action)
+            assertEquals(CallAction.REJECT, decide(facts("+79990000000", "OOO Poleznyy Zvonok: agentstvo")).action)
             assertEquals(CallAction.REJECT, decide(facts("+79990000000", "OOO Polezniy zvonok: reklama")).action)
         }
     }

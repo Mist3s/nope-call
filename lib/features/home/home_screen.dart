@@ -332,9 +332,14 @@ class _ProblemsCard extends StatelessWidget {
 
 /// Наполняемость операторской подписи (ТЗ §7.7.5).
 ///
-/// Показывается затем, чтобы пользователь **до** создания правил по названию увидел, приходит ли
-/// подпись на его операторе и устройстве вообще. Правила по названию строить на пустом месте
-/// бессмысленно, а понять это без цифр невозможно.
+/// Показывается затем, чтобы пользователь **до** создания правил по названию увидел, доходит ли
+/// до приложения название вообще. Правила по названию строить на пустом месте бессмысленно,
+/// а понять это без цифр невозможно.
+///
+/// Причина пустой цифры — не оператор и не VoLTE, а платформа: `Call.Details` для средства
+/// проверки звонков собирается отдельным методом Telecom, который обнуляет название безусловно
+/// (архитектура §14.1, docs/DIALER.md §2). Показывать «зависит от оператора» здесь значило бы
+/// советовать пользователю ждать того, что не наступит.
 class _SignatureCard extends StatelessWidget {
   const _SignatureCard({required this.summary});
 
@@ -346,7 +351,8 @@ class _SignatureCard extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final scheme = Theme.of(context).colorScheme;
-    final share = summary.withSignatureLast100 / summary.checkedLast100;
+    final withName = summary.withSignatureLast100;
+    final checked = summary.checkedLast100;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -359,17 +365,24 @@ class _SignatureCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Подпись оператора была у ${summary.withSignatureLast100} '
-              'из ${summary.checkedLast100} последних звонков.',
+              withName == 0
+                  ? 'Ни у одной из $checked последних проверок названия не было.'
+                  : 'Подпись оператора была у $withName из $checked последних проверок.',
             ),
             const SizedBox(height: 8),
-            LinearProgressIndicator(value: share),
-            const SizedBox(height: 8),
+            // Полоса только когда есть что показывать: пустая шкала выглядит как измерение,
+            // хотя измерять тут нечего — ноль здесь структурный, а не случайный.
+            if (withName > 0) ...[
+              LinearProgressIndicator(value: withName / checked),
+              const SizedBox(height: 8),
+            ],
             Text(
-              share < 0.2
-                  ? 'Подпись приходит редко: правила по названию будут срабатывать нечасто. '
-                        'Это зависит от оператора и от поддержки VoLTE.'
-                  : 'Подпись приходит достаточно часто, чтобы правила по названию работали.',
+              withName == 0
+                  ? 'Android не передаёт название приложению, которое только проверяет звонки: '
+                        'поле приходит пустым всегда, независимо от оператора и связи. '
+                        'Название видит звонилка по умолчанию — поэтому правила по названию '
+                        'заработают, когда приложение сможет ей стать.'
+                  : 'Название доходит, и правила по названию работают.',
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),

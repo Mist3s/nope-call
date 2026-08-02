@@ -1,7 +1,7 @@
 /// Категории вызова из перечня, утверждённого правилами маркировки звонков (41-ФЗ).
 ///
 /// Список — **начало, а не ограничение**. Причина не в осторожности, а в данных: на реальном
-/// телефоне пришли категории `finansy`, `reklama`, `agenstvo`, `IT`, `Transport`,
+/// телефоне пришли категории `finansy`, `reklama`, `agentstvo`, `IT`, `Transport`,
 /// `avto torgovlya`, и ни одной из них в перечне нет. Из наблюдённых с перечнем совпали
 /// только `dostavka` («Доставка») и `bank` («Банк»). Поэтому свои категории добавляются
 /// текстом, и правило по ним работает так же.
@@ -58,7 +58,7 @@ const List<String> officialCallCategories = [
 const List<String> observedExtraCategories = [
   'reklama',
   'finansy',
-  'agenstvo',
+  'agentstvo',
   'IT',
   'Transport',
   'avto torgovlya',

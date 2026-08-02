@@ -61,7 +61,7 @@ class SnapshotCodecTest {
             "+79991234567" to null,
             "+74951234567" to null,
             "+79990000000" to "OOO Romashka: reklama",
-            "+79990000000" to "OOO Poleznyy Zvonok: agenstvo",
+            "+79990000000" to "OOO Poleznyy Zvonok: agentstvo",
             "+79990000000" to "OOO UG KC Agent Rostelecom",
             "112" to null,
             null to "Zvonok bez markirovki",

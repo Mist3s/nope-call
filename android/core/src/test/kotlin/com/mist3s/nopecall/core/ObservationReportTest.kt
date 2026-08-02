@@ -166,35 +166,33 @@ class ObservationReportTest {
     }
 
     @Test
-    fun `сводка связывает отсутствие подписей с отсутствием VoLTE`() {
-        // Это и есть ответ, ради которого включают режим: подпись идёт в IMS-сигнализации,
-        // и на 3G её в момент проверки не бывает. Без связки «подписей 0» читается как
-        // «оператор не передаёт» — так и произошло на реальном телефоне.
+    fun `сводка называет настоящую причину отсутствия названия`() {
+        // Причина не в операторе и не в типе сети: система не передаёт название приложениям
+        // проверки звонков — Telecom обнуляет поле в toParcelableCallForScreening. Прежние
+        // формулировки объясняли это VoLTE, и обе оказались неверны.
         runBlocking {
             event(volte = false)
-            event(volte = false)
+            event(volte = true)
         }
-        val report = runBlocking { reporter().report() }
+        val text = runBlocking { reporter().report() }.toText()
 
-        assertEquals(0, report.withSignature)
-        assertEquals(2, report.checksWithoutVolte)
-        val text = report.toText()
-        assertTrue(text.contains("без VoLTE"), text)
-        assertTrue(text.contains("всего проверок 2"), text)
-        // Формулировка обязана называть это совпадением, а не механизмом: подпись существует
-        // и в сетях с коммутацией каналов, а звонков пока единицы.
-        assertTrue(text.contains("не доказана"), text)
+        assertTrue(text.contains("система его не передаёт"), text)
+        assertTrue(text.contains("ParcelableCallUtils"), text)
+        // Про VoLTE в объяснении больше ничего нет: разбивка по сети осталась отдельной
+        // строкой как наблюдение о сети, а не как причина.
+        assertFalse(text.contains("без VoLTE"), text)
     }
 
     @Test
-    fun `при наличии подписей про VoLTE не рассуждаем`() {
+    fun `разбивка по VoLTE остаётся наблюдением о сети`() {
         runBlocking {
-            event(volte = false, nameRaw = "OOO Romashka: reklama", nameSource = "CNAP")
+            event(volte = false)
+            event(volte = true)
         }
         val report = runBlocking { reporter().report() }
 
-        assertTrue(report.withSignature > 0)
-        assertFalse(report.toText().contains("без VoLTE"), report.toText())
+        assertEquals(1, report.checksWithoutVolte)
+        assertEquals(1, report.volte.single { it.bucket == "VOLTE" }.total)
     }
 
     @Test
@@ -262,15 +260,15 @@ class ObservationReportTest {
     @Test
     fun `примеры подписей группируются и показывают свёрнутую форму`() {
         runBlocking {
-            event(nameRaw = "OOO Poleznyy Zvonok: agenstvo", nameSource = "CNAP")
-            event(nameRaw = "OOO Poleznyy Zvonok: agenstvo", nameSource = "CNAP")
+            event(nameRaw = "OOO Poleznyy Zvonok: agentstvo", nameSource = "CNAP")
+            event(nameRaw = "OOO Poleznyy Zvonok: agentstvo", nameSource = "CNAP")
             event(nameRaw = "Yandex: IT", nameSource = "CNAP")
             // Имя из телефонной книги в примеры подписей попадать не должно.
             event(nameRaw = "Мама", nameSource = "CONTACTS")
         }
         val samples = runBlocking { reporter().report() }.signatures
         assertEquals(2, samples.size)
-        assertEquals("OOO Poleznyy Zvonok: agenstvo", samples.first().raw)
+        assertEquals("OOO Poleznyy Zvonok: agentstvo", samples.first().raw)
         assertEquals(2, samples.first().total)
         assertTrue(samples.none { it.raw == "Мама" })
     }

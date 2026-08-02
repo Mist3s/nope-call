@@ -18,7 +18,7 @@ class RuleEngineTest {
 
     private val normalizer = RuFastPathNormalizer()
     private val builder = SnapshotBuilder(normalizer)
-    private val dict = setOf("dostavka", "it", "finans", "reklam", "agenstvo", "opros", "transport")
+    private val dict = setOf("dostavka", "it", "finans", "reklam", "agentstv", "opros", "transport")
 
     // --- фабрики фактов и правил -------------------------------------------------------------
 
@@ -116,7 +116,7 @@ class RuleEngineTest {
     fun `правило по категории различает две подписи одного юрлица`() {
         val s = snapshot(rule(RuleTarget.NAME_CATEGORY, MatchType.PREFIX, "reklam", order = 900))
         assertEquals(CallAction.REJECT, decide(facts(name = "OOO Polezniy zvonok: reklama"), s).action)
-        assertEquals(CallAction.ALLOW, decide(facts(name = "OOO Poleznyy Zvonok: agenstvo"), s).action)
+        assertEquals(CallAction.ALLOW, decide(facts(name = "OOO Poleznyy Zvonok: agentstvo"), s).action)
     }
 
     @Test
@@ -140,7 +140,7 @@ class RuleEngineTest {
         val s = snapshot(
             rule(RuleTarget.NAME_ORG, MatchType.CONTAINS, "полезный звонок", order = 900, variants = true)
         )
-        assertEquals(CallAction.REJECT, decide(facts(name = "OOO Poleznyy Zvonok: agenstvo"), s).action)
+        assertEquals(CallAction.REJECT, decide(facts(name = "OOO Poleznyy Zvonok: agentstvo"), s).action)
         assertEquals(CallAction.REJECT, decide(facts(name = "OOO Polezniy zvonok: reklama"), s).action)
     }
 

@@ -19,11 +19,11 @@ class NameCanonizerTest {
      * Словарь категорий: нужен только для подписей, где категория стоит без двоеточия.
      *
      * Корни здесь должны быть однозначными. `agen` не годится: он совпадает и с категорией
-     * `agenstvo`, и со словом `Agent` из наименования `Agent Rostelecom`. Для сопоставления
+     * `agentstvo`, и со словом `Agent` из наименования `Agent Rostelecom`. Для сопоставления
      * уже выделенной категории короткий корень нормален (пресет «категория начинается
      * с `agen`»), а для распознавания — нет.
      */
-    private val dict = setOf("dostavka", "it", "finans", "reklam", "agenstvo", "opros", "transport")
+    private val dict = setOf("dostavka", "it", "finans", "reklam", "agentstv", "opros", "transport")
 
     private fun canon(raw: String) = NameCanonizer.canonize(raw, dict)
 

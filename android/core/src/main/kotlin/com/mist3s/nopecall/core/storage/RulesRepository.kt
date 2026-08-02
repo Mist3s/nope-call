@@ -289,10 +289,12 @@ public class RulesRepository(
          * режима наблюдения, поэтому хранятся настройкой, а не константой в коде.
          *
          * Корни намеренно длинные: `agen` совпал бы и со словом `Agent` из наименования
-         * `Agent Rostelecom`, а для распознавания категории это ошибка.
+         * `Agent Rostelecom`, а для распознавания категории это ошибка. Сопоставление идёт
+         * через `startsWith`, поэтому `agentstv` покрывает и `agentstvo`, и `agentstva`,
+         * но не задевает слово `agent`.
          */
         public const val DEFAULT_CATEGORY_DICT: String =
-            "dostavka,finans,reklam,agenstvo,opros,transport,torgovl,informac,it"
+            "dostavka,finans,reklam,agentstv,opros,transport,torgovl,informac,it"
 
         private const val VARIANT_LIMIT = 64
     }
