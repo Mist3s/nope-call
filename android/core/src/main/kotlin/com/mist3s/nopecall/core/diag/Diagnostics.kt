@@ -75,7 +75,7 @@ public data class DiagnosticsReport(
      * не нужны никому: для разбора хватает решения, причины и задержки.
      */
     public fun toText(device: String, role: String, permissions: String): String = buildString {
-        appendLine("Отбой — диагностика")
+        appendLine("Приём — диагностика")
         appendLine(device)
         appendLine()
         appendLine("Роль: $role")

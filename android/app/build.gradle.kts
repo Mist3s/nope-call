@@ -38,7 +38,7 @@ android {
     defaultConfig {
         // Идентичность приложения. Менять после первого релиза нельзя: для системы это
         // будет другое приложение, а не обновление.
-        applicationId = "com.mist3s.nopecall"
+        applicationId = "com.mist3s.priem"
         minSdk = 29 // ТЗ §2: Android 10+, ROLE_CALL_SCREENING
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

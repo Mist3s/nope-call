@@ -48,7 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Отбой')),
+      appBar: AppBar(title: const Text('Приём')),
       body: RefreshIndicator(
         onRefresh: _load,
         child: LoadableView<(SetupStatus, SummaryDto)>(

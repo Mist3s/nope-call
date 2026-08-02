@@ -73,7 +73,7 @@ public data class ObservationReport(
      * ответить на вопрос, а не чтобы писать под него парсер.
      */
     public fun toText(): String = buildString {
-        appendLine("Отбой — сводка режима наблюдения")
+        appendLine("Приём — сводка режима наблюдения")
         appendLine("Период: с ${stamp(fromAt)} по ${stamp(toAt)}")
         appendLine()
         appendLine("Проверок: $checks")

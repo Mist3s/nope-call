@@ -15,7 +15,7 @@ class NopeCallApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Отбой',
+      title: 'Приём',
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
       home: const AppRoot(),

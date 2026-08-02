@@ -134,7 +134,7 @@ public class RulesTransfer(
 
         val schema = root.optInt(KEY_SCHEMA, 0)
         if (schema <= 0) {
-            return ImportResult.Failed("в файле нет версии схемы: это не набор правил «Отбоя»")
+            return ImportResult.Failed("в файле нет версии схемы: это не набор правил «Приёма»")
         }
         if (schema > SCHEMA_VERSION) {
             // Файл более новой версии может означать те же ключи с другим смыслом. Импортировать

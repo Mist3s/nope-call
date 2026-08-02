@@ -87,7 +87,7 @@ class _AboutScreenState extends State<AboutScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Отбой', style: theme.textTheme.titleLarge),
+                  Text('Приём', style: theme.textTheme.titleLarge),
                   const SizedBox(height: 4),
                   Text(
                     'Блокировка входящих звонков по вашим правилам. Раздаётся напрямую, '

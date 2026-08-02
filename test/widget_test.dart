@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nope_call/app/app.dart';
-import 'package:nope_call/features/onboarding/onboarding_screen.dart';
+import 'package:priem/app/app.dart';
+import 'package:priem/features/onboarding/onboarding_screen.dart';
 
 void main() {
   // Проверяется оболочка, а не `NopeCallApp`: тот сначала спрашивает у платформы, пройден ли

@@ -84,7 +84,7 @@
             android:name="com.mist3s.nopecall.InstallStatusReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.mist3s.nopecall.INSTALL_STATUS" />
+                <action android:name="com.mist3s.priem.INSTALL_STATUS" />
             </intent-filter>
         </receiver>
 

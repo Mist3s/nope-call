@@ -1110,7 +1110,7 @@ internal class UpdaterApiImpl(
 
     internal companion object {
         /** По этому действию система сообщит исход установки; приёмник объявляет `:app`. */
-        const val INSTALL_STATUS_ACTION: String = "com.mist3s.nopecall.INSTALL_STATUS"
+        const val INSTALL_STATUS_ACTION: String = "com.mist3s.priem.INSTALL_STATUS"
     }
 }
 
