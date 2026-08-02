@@ -47,6 +47,7 @@ class ObservationTest {
         name: String? = "OOO Romashka: reklama",
         nameSource: String? = "CNAP",
         extras: List<ExtraEntry> = emptyList(),
+        raw: List<ExtraEntry> = emptyList(),
     ) = CallObservation(
         at = at,
         handleScheme = "tel",
@@ -57,6 +58,7 @@ class ObservationTest {
         verificationStatus = 1,
         creationTimeMillis = at - 300,
         extras = extras,
+        raw = raw,
         digits = number?.filter { it.isDigit() },
         e164 = number,
         nameFold = "ooo romashka reklama",
@@ -105,6 +107,23 @@ class ObservationTest {
         ).toJsonLine()
         assertTrue(line.contains("\"key\":\"android.telecom.extra.CALL_SUBJECT\""))
         assertTrue(line.contains("\"type\":\"Bundle\""))
+    }
+
+    @Test
+    fun `сырой дамп деталей звонка попадает в лог`() {
+        // По разобранным полям нельзя отличить «система не дала названия» от «дала,
+        // но мы его не читаем». Именно этот вопрос возник на реальном звонке: подпись
+        // отображалась на экране вызова, а в getCallerDisplayName() был null.
+        val line = observation(
+            raw = listOf(
+                ExtraEntry("details.toString", "String", "[hdl: tel:*, caps: 0, props: 1]"),
+                ExtraEntry("callProperties", "Integer", "1"),
+            )
+        ).toJsonLine()
+
+        assertTrue(line.contains("\"raw\""), line)
+        assertTrue(line.contains("\"key\":\"details.toString\""), line)
+        assertTrue(line.contains("\"key\":\"callProperties\""), line)
     }
 
     // --- маскирование при выгрузке (ТЗ §7.7.4) ------------------------------------------------

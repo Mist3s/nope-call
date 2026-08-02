@@ -3,6 +3,7 @@ package com.mist3s.nopecall.core.facts
 import com.mist3s.nopecall.core.facts.CallDetailsReader.Companion.PRESENTATION_ALLOWED
 import com.mist3s.nopecall.core.facts.CallDetailsReader.Companion.PRESENTATION_PAYPHONE
 import com.mist3s.nopecall.core.facts.CallDetailsReader.Companion.PRESENTATION_RESTRICTED
+import com.mist3s.nopecall.core.facts.CallDetailsReader.Companion.PRESENTATION_UNKNOWN
 import com.mist3s.nopecall.engine.CallFacts
 import com.mist3s.nopecall.engine.DecisionSettings
 import com.mist3s.nopecall.engine.NameCanonizer
@@ -58,7 +59,20 @@ public class CallFactsBuilder(
         val presentation = details.callerDisplayNamePresentation
         val raw = details.callerDisplayName?.takeIf { it.isNotBlank() }
 
-        if (raw == null || presentation != PRESENTATION_ALLOWED) {
+        // Название отбрасывается, только когда система **сказала**, что его показывать нельзя.
+        //
+        // Раньше условие было «presentation != ALLOWED», и это отбрасывало название при
+        // presentation = 0. Ноль — не одно из значений `TelecomManager.PRESENTATION_*`,
+        // а «поле не заполнено»: на Pixel 3a (Android 12) в `onScreenCall` там ноль всегда,
+        // в том числе когда названия нет вовсе. То есть пришедшая подпись была бы выброшена
+        // молча — при том, что ради неё существует половина проекта.
+        //
+        // Скрытое и неопределённое название по-прежнему не используется: там система прямо
+        // говорит, что показывать нечего или нельзя.
+        val hidden = presentation == PRESENTATION_RESTRICTED ||
+            presentation == PRESENTATION_UNKNOWN ||
+            presentation == PRESENTATION_PAYPHONE
+        if (raw == null || hidden) {
             return ResolvedName(NameForms.NONE, NameSource.NONE)
         }
 

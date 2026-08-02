@@ -50,6 +50,34 @@ internal class TelecomCallDetails(private val details: Call.Details) : CallDetai
     override val accountHandle: String?
         get() = runCatching { details.accountHandle?.id }.getOrNull()
 
+    /**
+     * Всё, что система рассказывает о звонке, — включая то, чем построение фактов не пользуется.
+     *
+     * Каждое значение через `runCatching` по отдельности: одно недоступное поле не должно
+     * лишать лога остальных. `toString()` самих деталей идёт целиком — там видно и те поля,
+     * о которых мы не знаем, что их надо спрашивать.
+     */
+    override fun rawDump(): List<ExtraEntry> = buildList {
+        fun add(key: String, value: Any?) {
+            if (value != null) add(ExtraEntry(key, value.javaClass.simpleName, value.toString()))
+        }
+        add("details.toString", runCatching { details.toString() }.getOrNull())
+        add("callProperties", runCatching { details.callProperties }.getOrNull())
+        add("callCapabilities", runCatching { details.callCapabilities }.getOrNull())
+        add("videoState", runCatching { details.videoState }.getOrNull())
+        add("gatewayInfo", runCatching { details.gatewayInfo }.getOrNull())
+        add("statusHints.label", runCatching { details.statusHints?.label }.getOrNull())
+        add("callerDisplayName", runCatching { details.callerDisplayName }.getOrNull())
+        add("handle", runCatching { details.handle }.getOrNull())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            add("contactDisplayName", runCatching { details.contactDisplayName }.getOrNull())
+        }
+        // Подсказки статуса — ещё один `Bundle`, куда вендор может положить что угодно.
+        addAll(dump(runCatching { details.statusHints?.extras }.getOrNull()).map {
+            ExtraEntry("statusHints.${it.key}", it.type, it.value)
+        })
+    }
+
     override fun extrasDump(): List<ExtraEntry> = dump(runCatching { details.extras }.getOrNull())
 
     override fun intentExtrasDump(): List<ExtraEntry> =

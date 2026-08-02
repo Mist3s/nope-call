@@ -20,6 +20,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -162,6 +163,38 @@ class ObservationReportTest {
         assertEquals(50, report.latencyP50)
         assertEquals(95, report.latencyP95)
         assertEquals(100, report.latencyMax)
+    }
+
+    @Test
+    fun `сводка связывает отсутствие подписей с отсутствием VoLTE`() {
+        // Это и есть ответ, ради которого включают режим: подпись идёт в IMS-сигнализации,
+        // и на 3G её в момент проверки не бывает. Без связки «подписей 0» читается как
+        // «оператор не передаёт» — так и произошло на реальном телефоне.
+        runBlocking {
+            event(volte = false)
+            event(volte = false)
+        }
+        val report = runBlocking { reporter().report() }
+
+        assertEquals(0, report.withSignature)
+        assertEquals(2, report.checksWithoutVolte)
+        val text = report.toText()
+        assertTrue(text.contains("без VoLTE"), text)
+        assertTrue(text.contains("всего проверок 2"), text)
+        // Формулировка обязана называть это совпадением, а не механизмом: подпись существует
+        // и в сетях с коммутацией каналов, а звонков пока единицы.
+        assertTrue(text.contains("не доказана"), text)
+    }
+
+    @Test
+    fun `при наличии подписей про VoLTE не рассуждаем`() {
+        runBlocking {
+            event(volte = false, nameRaw = "OOO Romashka: reklama", nameSource = "CNAP")
+        }
+        val report = runBlocking { reporter().report() }
+
+        assertTrue(report.withSignature > 0)
+        assertFalse(report.toText().contains("без VoLTE"), report.toText())
     }
 
     @Test

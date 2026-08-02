@@ -398,6 +398,12 @@ class _SignatureCard extends StatelessWidget {
     // а он об источнике не свидетельствует — у одного номера столбец заполнен у части звонков,
     // при том что звонилка показывает название у всех.
     final lateOther = report.lateNames - report.lateSignatures;
+    // Сколько проверок пришлось на сеть без VoLTE — берётся из той же разбивки, что
+    // показана ниже отдельной карточкой, без нового запроса.
+    final noVolte = report.volte
+        .whereType<BucketDto>()
+        .where((b) => b.label == 'NO_VOLTE')
+        .fold<int>(0, (sum, b) => sum + b.total);
 
     return Card(
       margin: const EdgeInsets.all(16),
@@ -437,6 +443,23 @@ class _SignatureCard extends StatelessWidget {
                 'по названию сработать не могут — по ним нужны правила по номеру.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            // Связка «подписей нет» и «звонки шли без VoLTE» показывается, потому что без неё
+            // ноль читается как «оператор не передаёт». Но это совпадение, а не доказанный
+            // механизм: подпись существует и в сетях с коммутацией каналов, а звонков пока
+            // единицы. Формулировка обязана это различать.
+            if (report.withSignature == 0 && noVolte > 0) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Подписи в момент проверки не было ни разу, и $noVolte '
+                '${plural(noVolte, 'проверка пришлась', 'проверок пришлось', 'проверок пришлось')} '
+                'на сеть без VoLTE (всего $checks). Связь вероятна, но по такому числу '
+                'звонков не доказана. Точно известно другое: на этих звонках правила '
+                'по названию сработать не могли — нужны правила по номеру.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],

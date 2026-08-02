@@ -145,6 +145,39 @@ class CallFactsBuilderTest {
     }
 
     @Test
+    fun `подпись принимается, когда presentation не заполнен`() {
+        // Ноль — не значение `TelecomManager.PRESENTATION_*`, а «поле не заполнено».
+        // На Pixel 3a (Android 12) в onScreenCall там ноль всегда, и прежнее условие
+        // «presentation != ALLOWED» выбросило бы пришедшую подпись молча.
+        val f = builder().build(
+            FakeCallDetails(
+                callerDisplayName = "OOO SDEK-GLOBAL: dostavka",
+                callerDisplayNamePresentation = 0,
+            ),
+            settings,
+        )
+        assertEquals(NameSource.CNAP, f.nameSource)
+        assertEquals("dostavka", f.name.category?.fold)
+        assertTrue(f.hasName)
+    }
+
+    @Test
+    fun `название с признаком «неопределено» или «таксофон» не используется`() {
+        // Здесь система прямо говорит, что показывать нечего, — в отличие от незаполненного поля.
+        for (presentation in listOf(PRESENTATION_UNKNOWN, PRESENTATION_PAYPHONE)) {
+            val f = builder().build(
+                FakeCallDetails(
+                    callerDisplayName = "PAO SOVKOMBANK",
+                    callerDisplayNamePresentation = presentation,
+                ),
+                settings,
+            )
+            assertEquals(NameSource.NONE, f.nameSource, "presentation=$presentation")
+            assertFalse(f.hasName, "presentation=$presentation")
+        }
+    }
+
+    @Test
     fun `пустое название считается отсутствующим`() {
         for (name in listOf(null, "", "   ")) {
             val f = builder().build(FakeCallDetails(callerDisplayName = name), settings)

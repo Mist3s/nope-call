@@ -65,6 +65,13 @@ public data class CallObservation(
     val accountHandle: String? = null,
     val extras: List<ExtraEntry> = emptyList(),
     val intentExtras: List<ExtraEntry> = emptyList(),
+    /**
+     * Сырой `Call.Details` и поля, которые построение фактов не использует.
+     *
+     * Без него по логу нельзя отличить «система не дала названия» от «дала, но мы его
+     * не читаем»: разобранные поля показывают только наш вывод, а не исходные данные.
+     */
+    val raw: List<ExtraEntry> = emptyList(),
     /** Производные поля движка: `digits`, `e164`, `name_norm`, `name_tokens`, `name_fold`. */
     val digits: String? = null,
     val e164: String? = null,
@@ -161,6 +168,7 @@ public data class CallObservation(
 
         putObjects("extras", extras.map { it.toJson() })
         putObjects("intent_extras", intentExtras.map { it.toJson() })
+        putObjects("raw", raw.map { it.toJson() })
     }
 
     private fun ExtraEntry.toJson(): Json = Json().obj {

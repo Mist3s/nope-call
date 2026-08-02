@@ -116,6 +116,9 @@ internal class NopeCallScreeningService : CallScreeningService() {
         // и без этого контекста ответить «почему подписи не было» нечем.
         val extras = runCatching { reader.extrasDump() }.getOrDefault(emptyList())
         val intentExtras = runCatching { reader.intentExtrasDump() }.getOrDefault(emptyList())
+        // Сырые данные о звонке: по разобранным полям нельзя отличить «система не дала»
+        // от «дала, но мы не читаем». Собирается после ответа, как и остальной дамп.
+        val rawDetails = runCatching { reader.rawDump() }.getOrDefault(emptyList())
         val network = runCatching { CoreGraph.networkContext.read() }
             .getOrDefault(NetworkContext.UNKNOWN)
         val diagnostics = ScreeningDiagnostics(
@@ -178,6 +181,7 @@ internal class NopeCallScreeningService : CallScreeningService() {
                     accountHandle = reader.accountHandle,
                     extras = extras,
                     intentExtras = intentExtras,
+                    raw = rawDetails,
                     digits = outcome.facts?.number?.let { it.canonicalDigits.ifEmpty { it.digits } },
                     e164 = outcome.facts?.number?.e164,
                     nameNorm = outcome.facts?.name?.whole?.norm,
